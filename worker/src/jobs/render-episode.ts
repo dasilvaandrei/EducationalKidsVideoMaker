@@ -76,8 +76,10 @@ async function resolveSignedUrl(storagePath: string): Promise<string> {
 
 // Mascot poses and the background are fixed (kind, asset_key) rows,
 // identical for every render — generate-assets.ts is what actually
-// produces them, this just looks up the cached row.
-async function resolveFixedAsset(kind: "mascot" | "background", assetKey: string): Promise<string> {
+// produces them, this just looks up the cached row's storage path.
+// Deliberately does NOT sign the URL here: the caller signs it fresh
+// right before each render (see the batch-vs-per-render TTL note below).
+async function lookupFixedAssetPath(kind: "mascot" | "background", assetKey: string): Promise<string> {
   const { data, error } = await supabase
     .from("image_assets")
     .select("storage_path")
@@ -88,7 +90,7 @@ async function resolveFixedAsset(kind: "mascot" | "background", assetKey: string
   if (!data) {
     throw new Error(`image_assets has no (${kind}, ${assetKey}) row — run \`npm run generate-assets\` first`);
   }
-  return resolveSignedUrl(data.storage_path);
+  return data.storage_path;
 }
 
 // Resolves this render's specific vocabulary words to signed image URLs,
@@ -127,31 +129,37 @@ export async function renderQueuedEpisodes(): Promise<void> {
   console.log(`${renders?.length ?? 0} renders queued`);
   if (!renders || renders.length === 0) return;
 
-  // Fixed for every render this run — resolved once up front rather than
-  // per-render. If they're missing, no render in this batch can succeed,
-  // so bail out without touching any renders row (they stay 'queued' for
-  // the next run, once generate-assets has been run). The topic-scene
-  // background is NOT fixed across renders (it's per-topic), so it's
-  // resolved inside the per-render loop below instead.
-  let mascotIdleSrc: string;
-  let mascotBlinkSrc: string;
-  let mascotMouthOpenSrc: string;
-  let mascotWaveSrc: string;
-  let mascotClapSrc: string;
-  let mascotPointSrc: string;
-  let mascotThinkSrc: string;
-  let livingRoomSrc: string;
+  // Storage paths are fixed for every render this run, looked up once up
+  // front — if any are missing, no render in this batch can succeed, so
+  // bail out without touching any renders row (they stay 'queued' for the
+  // next run, once generate-assets has been run). The signed URLs
+  // themselves are NOT resolved here, though: a batch can contain several
+  // long-form renders and run well past a signed URL's TTL before it
+  // reaches the later items, so each render below signs these paths
+  // fresh right before it runs instead of reusing one signed up front
+  // (which previously caused later renders in a long batch to fetch an
+  // expired URL and fail with an image-decode error). The topic-scene
+  // background is NOT fixed across renders (it's per-topic) and was
+  // already resolved inside the per-render loop.
+  let mascotIdlePath: string;
+  let mascotBlinkPath: string;
+  let mascotMouthOpenPath: string;
+  let mascotWavePath: string;
+  let mascotClapPath: string;
+  let mascotPointPath: string;
+  let mascotThinkPath: string;
+  let livingRoomPath: string;
   try {
-    [mascotIdleSrc, mascotBlinkSrc, mascotMouthOpenSrc, mascotWaveSrc, mascotClapSrc, mascotPointSrc, mascotThinkSrc, livingRoomSrc] =
+    [mascotIdlePath, mascotBlinkPath, mascotMouthOpenPath, mascotWavePath, mascotClapPath, mascotPointPath, mascotThinkPath, livingRoomPath] =
       await Promise.all([
-        resolveFixedAsset("mascot", "idle"),
-        resolveFixedAsset("mascot", "blink"),
-        resolveFixedAsset("mascot", "mouth_open"),
-        resolveFixedAsset("mascot", "wave"),
-        resolveFixedAsset("mascot", "clap"),
-        resolveFixedAsset("mascot", "point"),
-        resolveFixedAsset("mascot", "think"),
-        resolveFixedAsset("background", "living_room"),
+        lookupFixedAssetPath("mascot", "idle"),
+        lookupFixedAssetPath("mascot", "blink"),
+        lookupFixedAssetPath("mascot", "mouth_open"),
+        lookupFixedAssetPath("mascot", "wave"),
+        lookupFixedAssetPath("mascot", "clap"),
+        lookupFixedAssetPath("mascot", "point"),
+        lookupFixedAssetPath("mascot", "think"),
+        lookupFixedAssetPath("background", "living_room"),
       ]);
   } catch (err) {
     console.error("render-episode: required image assets not ready:", err instanceof Error ? err.message : err);
@@ -186,7 +194,31 @@ export async function renderQueuedEpisodes(): Promise<void> {
 
       const topic = topicOf(render);
       if (!topic) throw new Error(`render ${render.id}: episode has no joined topic`);
-      const topicSceneSrc = await resolveFixedAsset("background", topic.slug);
+
+      // Signed fresh per render (see the note above the batch-start
+      // lookupFixedAssetPath calls) rather than reusing the batch-start
+      // URLs, which can outlive the TTL in a long batch.
+      const [
+        mascotIdleSrc,
+        mascotBlinkSrc,
+        mascotMouthOpenSrc,
+        mascotWaveSrc,
+        mascotClapSrc,
+        mascotPointSrc,
+        mascotThinkSrc,
+        livingRoomSrc,
+        topicSceneSrc,
+      ] = await Promise.all([
+        resolveSignedUrl(mascotIdlePath),
+        resolveSignedUrl(mascotBlinkPath),
+        resolveSignedUrl(mascotMouthOpenPath),
+        resolveSignedUrl(mascotWavePath),
+        resolveSignedUrl(mascotClapPath),
+        resolveSignedUrl(mascotPointPath),
+        resolveSignedUrl(mascotThinkPath),
+        resolveSignedUrl(livingRoomPath),
+        lookupFixedAssetPath("background", topic.slug).then(resolveSignedUrl),
+      ]);
 
       const script = scriptOf(render);
       const totalDurationMs = (voiceover.duration_seconds ?? 0) * 1000;
