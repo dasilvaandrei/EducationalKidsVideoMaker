@@ -1,0 +1,43 @@
+name: Publish Tuesday long-form episode
+
+# "Night" = 7:00 PM ET (after dinner/activities, before bedtime wind-down)
+# — see the plan's scheduling section. GitHub Actions cron is UTC-only and
+# doesn't shift for daylight saving, so this is a fixed EST (UTC-5)
+# offset: during EDT (roughly March-November) the actual post time drifts
+# an hour later on the wall clock (8pm ET instead of 7pm). Adjust the cron
+# line by ±1 hour across the DST boundary if that hour matters, or ask for
+# a DST-aware version (needs an in-job time check instead of relying on
+# cron alone, since cron itself can't express "local time").
+#
+# 7pm EST crosses the UTC day boundary, so cron day-of-week is the *next*
+# UTC day: Wednesday 00:00 UTC = Tuesday 7pm EST.
+on:
+  schedule:
+    - cron: "0 0 * * 3" # Wed 00:00 UTC = Tue 7pm EST
+  workflow_dispatch: {} # manual trigger, e.g. to catch up after a gap
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Publish next Tuesday long-form episode to YouTube
+        working-directory: worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          # Only flip to "public" once a manual run has confirmed
+          # actualPrivacyStatus is actually honored for this brand-new,
+          # unverified channel/OAuth app — see publish-episode.ts.
+          YOUTUBE_UPLOAD_PRIVACY_STATUS: ${{ secrets.YOUTUBE_UPLOAD_PRIVACY_STATUS }}
+        run: npm run publish-episode -- --air-slot tuesday_long_form --limit 1

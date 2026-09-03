@@ -1,0 +1,34 @@
+name: Generate content buffer
+
+# Runs early each day, well ahead of the evening publish crons, so a
+# human reviewer has time to approve fresh content before it's due to go
+# out. GitHub Actions cron is UTC-only and doesn't shift for daylight
+# saving — 10:00 UTC is ~5-6am ET depending on DST, comfortably before
+# anyone's morning review pass either way.
+on:
+  schedule:
+    - cron: "0 10 * * *" # ~5-6am ET
+  workflow_dispatch: {} # manual trigger, e.g. to force a top-up on demand
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Top up content buffer
+        working-directory: worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TTS_PROVIDER: ${{ secrets.TTS_PROVIDER }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+        run: npm run generate-content

@@ -1,0 +1,8 @@
+{
+  "name": "kidsvideomaker",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "worker"
+  ]
+}

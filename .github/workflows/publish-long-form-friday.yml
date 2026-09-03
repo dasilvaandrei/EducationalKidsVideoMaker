@@ -1,0 +1,36 @@
+name: Publish Friday long-form episode
+
+# "Night" = 7:00 PM ET — see publish-long-form-tuesday.yml for the full
+# fixed-EST/DST-drift caveat, which applies identically here. 7pm EST
+# crosses the UTC day boundary, so cron day-of-week is the *next* UTC day:
+# Saturday 00:00 UTC = Friday 7pm EST.
+on:
+  schedule:
+    - cron: "0 0 * * 6" # Sat 00:00 UTC = Fri 7pm EST
+  workflow_dispatch: {} # manual trigger, e.g. to catch up after a gap
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Publish next Friday long-form episode to YouTube
+        working-directory: worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          # Only flip to "public" once a manual run has confirmed
+          # actualPrivacyStatus is actually honored for this brand-new,
+          # unverified channel/OAuth app — see publish-episode.ts.
+          YOUTUBE_UPLOAD_PRIVACY_STATUS: ${{ secrets.YOUTUBE_UPLOAD_PRIVACY_STATUS }}
+        run: npm run publish-episode -- --air-slot friday_long_form --limit 1

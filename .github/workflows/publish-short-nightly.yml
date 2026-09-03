@@ -1,0 +1,36 @@
+name: Publish nightly Short
+
+# "Night" = 7:00 PM ET, every night — see publish-long-form-tuesday.yml
+# for the full fixed-EST/DST-drift caveat, which applies identically
+# here. 7pm EST crosses the UTC day boundary, so this fires at the *next*
+# UTC day's midnight relative to the US evening.
+on:
+  schedule:
+    - cron: "0 0 * * *" # 00:00 UTC daily = 7pm EST the evening before
+  workflow_dispatch: {} # manual trigger, e.g. to catch up after a gap
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Publish next nightly Short to YouTube
+        working-directory: worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          # Only flip to "public" once a manual run has confirmed
+          # actualPrivacyStatus is actually honored for this brand-new,
+          # unverified channel/OAuth app — see publish-episode.ts.
+          YOUTUBE_UPLOAD_PRIVACY_STATUS: ${{ secrets.YOUTUBE_UPLOAD_PRIVACY_STATUS }}
+        run: npm run publish-episode -- --air-slot nightly_short --limit 1

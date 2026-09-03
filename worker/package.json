@@ -1,0 +1,42 @@
+{
+  "name": "@kidsvideomaker/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "generate-content": "tsx src/jobs/generate-content.ts",
+    "pick-topic": "tsx src/jobs/pick-topic.ts",
+    "write-script": "tsx src/jobs/write-script.ts",
+    "safety-check": "tsx src/jobs/safety-check.ts",
+    "generate-voiceover": "tsx src/jobs/generate-voiceover.ts",
+    "render-episode": "tsx src/jobs/render-episode.ts",
+    "generate-assets": "tsx src/jobs/generate-assets.ts",
+    "recolor-mascot": "tsx src/jobs/recolor-mascot.ts",
+    "publish-episode": "tsx src/jobs/publish-episode.ts",
+    "youtube-oauth-bootstrap": "tsx src/jobs/youtube-oauth-bootstrap.ts",
+    "remotion:studio": "remotion studio src/remotion/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@google/genai": "^2.20.0",
+    "@remotion/bundler": "^4.0.190",
+    "@remotion/captions": "^4.0.190",
+    "@remotion/google-fonts": "^4.0.190",
+    "@remotion/media": "^4.0.190",
+    "@remotion/renderer": "^4.0.190",
+    "@supabase/supabase-js": "^2.45.0",
+    "mediabunny": "^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.190",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.190",
+    "@types/node": "^22.4.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
