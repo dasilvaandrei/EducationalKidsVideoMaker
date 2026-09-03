@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { previewDescription } from "@/lib/descriptionPreview";
-import { ReviewCard } from "./ReviewCard";
+import { ReviewTabs } from "./ReviewTabs";
 
 const MEDIA_BUCKET = "media";
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
@@ -71,15 +71,11 @@ export default async function ReviewPage() {
         </p>
       </div>
 
-      {rows.length === 0 && (
+      {rows.length === 0 ? (
         <p className="text-neutral-500">Nothing to review right now.</p>
+      ) : (
+        <ReviewTabs rows={withUrls} />
       )}
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {withUrls.map((row) => (
-          <ReviewCard key={row.render_id} render={row} />
-        ))}
-      </div>
     </div>
   );
 }

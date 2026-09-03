@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { approveRender, rejectRender } from "./actions";
 
-interface ReviewRender {
+export interface ReviewRender {
   render_id: string;
   episode_id: string;
   aspect_ratio: "16:9" | "9:16";
