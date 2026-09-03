@@ -117,6 +117,7 @@ WRITING RULES (follow all of these — they are production requirements, not sug
 3. Call-and-response: include exactly one call-and-response beat, marked with the literal tag "[PAUSE FOR RESPONSE]" immediately after the mascot asks the viewer a question (e.g. "Can you point to something red? [PAUSE FOR RESPONSE]"). List every such moment (the question text, without the tag) in call_and_response_moments.
 4. Rhyme is welcome when it happens naturally, but never force a rhyme at the cost of a confusing or unnatural sentence.
 5. Vocabulary level: never use a word harder than the concept you're teaching requires. If you must use a slightly advanced word, define it in the same breath in simple terms.
+6. Punctuation: use only periods, commas, question marks, and exclamation points. Never use an em dash (—) or en dash (–) — split into two short sentences instead.
 
 VISUAL GROUNDING — read carefully, this is a hard requirement:
 This video can only actually show a small, fixed set of things: ${MASCOT_NAME} the penguin (always on screen), the living-room/topic-scene background, a real photo of THIS episode's hero word (only if it's a concrete object — most are), a solid color swatch when a color name is spoken, and — when a number word is spoken — that many small pictures of ${MASCOT_NAME} popping up (so "five" makes five little ${MASCOT_NAME}s appear). Nothing else you write will have any picture, animation, or visual to match it.
@@ -307,6 +308,7 @@ function buildRewriteSystemInstruction(topic: TopicRow, format: Format, feedback
 
 - TARGET LENGTH: ${band.min}-${band.max} words. Count carefully before finishing.
 - Sentence length: every sentence capped at 8-10 words, simple enough for a 3-7 year old to follow by ear.
+- Punctuation: only periods, commas, question marks, and exclamation points. Never an em dash (—) or en dash (–), even for a "punchier" rewrite — split into two short sentences instead.
 - Keep the same hero word/topic focus and the same factual content — you are polishing the writing and performance, not changing what's being taught.
 - Preserve the exact structure: mascot greeting -> topic intro -> teaching with repetition -> exactly one call-and-response beat (marked with the literal tag "[PAUSE FOR RESPONSE]" immediately after the mascot asks the viewer a question) -> recap -> closing catchphrase.
 - No "subscribe" call-to-action or clickable-button language of any kind.
@@ -391,7 +393,15 @@ export async function generateScriptContent(
     }
   }
 
-  return { ...final, draftBody: draft.body };
+  // Defensive backstop, not just a prompt instruction: an em/en dash in
+  // the final narration gets burned into captions a pre-reader has to
+  // parse, so guarantee its absence rather than trust the LLM followed
+  // rule 6 above every time.
+  return { ...final, body: stripDashes(final.body), draftBody: stripDashes(draft.body) };
+}
+
+function stripDashes(text: string): string {
+  return text.replace(/\s*[—–]\s*/g, ", ").replace(/[ \t]+/g, " ");
 }
 
 export interface WriteScriptOptions {

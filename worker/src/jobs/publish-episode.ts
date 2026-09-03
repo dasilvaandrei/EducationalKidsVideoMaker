@@ -105,7 +105,7 @@ function buildDescription(
   const hook = editedDescription?.trim() || plainSummary(scriptBody);
   const vocab = topic.key_vocabulary.slice(0, 5).join(", ");
   const learnLine = vocab
-    ? `📚 Today's lesson: ${topic.title} — new words: ${vocab}`
+    ? `📚 Today's lesson: ${topic.title}. New words: ${vocab}`
     : `📚 Today's lesson: ${topic.title}`;
   const scheduleLine =
     "🐧 New adventures with Paula every Tuesday & Friday, plus a fun new Short every night!";

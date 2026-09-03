@@ -28,7 +28,7 @@ export function previewDescription(
   const hook = plainSummary(scriptBody);
   const vocab = keyVocabulary.slice(0, 5).join(", ");
   const learnLine = vocab
-    ? `📚 Today's lesson: ${topicTitle} — new words: ${vocab}`
+    ? `📚 Today's lesson: ${topicTitle}. New words: ${vocab}`
     : `📚 Today's lesson: ${topicTitle}`;
   const scheduleLine =
     "🐧 New adventures with Paula every Tuesday & Friday, plus a fun new Short every night!";
