@@ -25,8 +25,15 @@ import type { TopicCategory } from "../remotion/categories.js";
 const MEDIA_BUCKET = "media";
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 const CATEGORY_ID = "27"; // Education
+// `|| undefined` first, not just `??`, because an env var can be an empty
+// string rather than truly unset — a blank .env line, or a GitHub Actions
+// secret that exists but was never given a value, both surface as "" here,
+// and "" ?? "private" evaluates to "" (nullish coalescing doesn't catch
+// empty string), which YouTube's API then rejects outright. Confirmed live
+// against both cases.
 const PRIVACY_STATUS =
-  (process.env.YOUTUBE_UPLOAD_PRIVACY_STATUS as "private" | "unlisted" | "public" | undefined) ?? "private";
+  ((process.env.YOUTUBE_UPLOAD_PRIVACY_STATUS || undefined) as "private" | "unlisted" | "public" | undefined) ??
+  "private";
 
 const CURRICULUM_HASHTAGS = ["kidslearning", "preschool", "earlylearning"];
 const FALLBACK_TITLE = "Let's Learn Together!";
@@ -201,6 +208,15 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
   let eligible = (renders ?? []).filter(
     (r) => approvedRenderIds.has(r.id) && !postedRenderIds.has(r.id) && r.storage_path
   );
+
+  // FIFO by approval time — the renders query above has no ORDER BY, so
+  // without this a `--limit 1` cron run could pick an arbitrary approved
+  // episode instead of the one that's been waiting longest in the queue.
+  eligible.sort((a, b) => {
+    const aTime = latestDecisionByRender.get(a.id)?.decided_at ?? "";
+    const bTime = latestDecisionByRender.get(b.id)?.decided_at ?? "";
+    return aTime.localeCompare(bTime);
+  });
 
   if (onlyRenderId) {
     eligible = eligible.filter((r) => r.id === onlyRenderId);
