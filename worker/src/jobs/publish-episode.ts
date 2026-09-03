@@ -30,12 +30,16 @@ const PRIVACY_STATUS =
 
 const CURRICULUM_HASHTAGS = ["kidslearning", "preschool", "earlylearning"];
 const FALLBACK_TITLE = "Let's Learn Together!";
+const CHANNEL_NAME = "Paula the Penguin Learns";
+const CHANNEL_HANDLE = "@paulathepenguinlearns";
 
 type Format = "long_form" | "short";
 type AirSlot = "tuesday_long_form" | "friday_long_form" | "nightly_short";
 
 interface TopicJoin {
   category: TopicCategory;
+  title: string;
+  key_vocabulary: string[];
 }
 
 interface EpisodeJoin {
@@ -85,21 +89,35 @@ function buildTitle(scriptTitle: string | null, editedTitle: string | null | und
   return title.length > 100 ? `${title.slice(0, 97)}...` : title;
 }
 
-// A short, honest summary line (not a hook designed to bait a click) plus
-// curriculum hashtags instead of virality hashtags. #Shorts is appended
-// only for the Shorts format, per YouTube's own Shorts-eligibility
-// convention.
+// A full description template modeled on how established creator channels
+// structure theirs (hook, what-you'll-learn line, subscribe CTA, posting
+// schedule, hashtags, channel blurb) — but keeping the hook itself an
+// honest one-line summary rather than a clickbait line, and the CTAs
+// warm/plain rather than the sibling project's ALL-CAPS/emoji-spam style.
+// #Shorts is appended only for the Shorts format, per YouTube's own
+// Shorts-eligibility convention.
 function buildDescription(
   scriptBody: string | null,
   editedDescription: string | null | undefined,
-  category: TopicCategory,
+  topic: TopicJoin,
   format: Format
 ): string {
-  const base = editedDescription?.trim() || plainSummary(scriptBody);
-  const categoryHashtag = category.replace(/_/g, "");
+  const hook = editedDescription?.trim() || plainSummary(scriptBody);
+  const vocab = topic.key_vocabulary.slice(0, 5).join(", ");
+  const learnLine = vocab
+    ? `📚 Today's lesson: ${topic.title} — new words: ${vocab}`
+    : `📚 Today's lesson: ${topic.title}`;
+  const scheduleLine =
+    "🐧 New adventures with Paula every Tuesday & Friday, plus a fun new Short every night!";
+  const subscribeLine = `🔔 Subscribe for more: youtube.com/${CHANNEL_HANDLE}`;
+  const categoryHashtag = topic.category.replace(/_/g, "");
   const hashtags = [...CURRICULUM_HASHTAGS, categoryHashtag].map((h) => `#${h}`);
   if (format === "short") hashtags.push("#Shorts");
-  return [base, hashtags.join(" ")].join("\n\n");
+  const aboutBlurb = `${CHANNEL_NAME} is a channel made just for kids, with gentle songs, simple words, and lots of encouragement to count along, wave back, and join in the fun!`;
+
+  return [hook, learnLine, [scheduleLine, subscribeLine].join("\n"), hashtags.join(" "), aboutBlurb].join(
+    "\n\n"
+  );
 }
 
 function plainSummary(scriptBody: string | null): string {
@@ -173,7 +191,9 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
 
   const { data: renders, error: rendersError } = await supabase
     .from("renders")
-    .select("id, storage_path, episode_id, episodes(format, air_slot, topics(category)), scripts(title_suggestion, body)")
+    .select(
+      "id, storage_path, episode_id, episodes(format, air_slot, topics(category, title, key_vocabulary)), scripts(title_suggestion, body)"
+    )
     .eq("render_status", "ready")
     .returns<EligibleRender[]>();
   if (rendersError) throw rendersError;
@@ -209,7 +229,7 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
 
     const decision = latestDecisionByRender.get(render.id);
     const title = buildTitle(script?.title_suggestion ?? null, decision?.edited_title);
-    const description = buildDescription(script?.body ?? null, decision?.edited_description, topic.category, episode.format);
+    const description = buildDescription(script?.body ?? null, decision?.edited_description, topic, episode.format);
 
     const { data: post, error: insertError } = await supabase
       .from("posts")
