@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { previewDescription } from "@/lib/descriptionPreview";
 import { ReviewCard } from "./ReviewCard";
 
 const MEDIA_BUCKET = "media";
@@ -24,6 +25,7 @@ interface PendingReview {
   format: "long_form" | "short";
   air_slot: "tuesday_long_form" | "friday_long_form" | "nightly_short";
   created_at: string;
+  key_vocabulary: string[];
 }
 
 export default async function ReviewPage() {
@@ -32,7 +34,7 @@ export default async function ReviewPage() {
   const { data: pending, error } = await supabase
     .from("pending_reviews")
     .select(
-      "render_id, episode_id, aspect_ratio, storage_path, duration_seconds, script_id, script_body, title_suggestion, category, topic_title, safety_reasoning, safety_categories_flagged, format, air_slot, created_at"
+      "render_id, episode_id, aspect_ratio, storage_path, duration_seconds, script_id, script_body, title_suggestion, category, topic_title, safety_reasoning, safety_categories_flagged, format, air_slot, created_at, key_vocabulary"
     )
     .order("created_at", { ascending: true })
     .returns<PendingReview[]>();
@@ -45,11 +47,18 @@ export default async function ReviewPage() {
 
   const withUrls = await Promise.all(
     rows.map(async (row) => {
-      if (!row.storage_path) return { ...row, videoUrl: null };
+      const previewDescriptionText = previewDescription(
+        row.script_body,
+        row.topic_title,
+        row.category,
+        row.key_vocabulary,
+        row.format
+      );
+      if (!row.storage_path) return { ...row, videoUrl: null, previewDescriptionText };
       const { data } = await supabase.storage
         .from(MEDIA_BUCKET)
         .createSignedUrl(row.storage_path, SIGNED_URL_TTL_SECONDS);
-      return { ...row, videoUrl: data?.signedUrl ?? null };
+      return { ...row, videoUrl: data?.signedUrl ?? null, previewDescriptionText };
     })
   );
 

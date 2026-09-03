@@ -20,6 +20,7 @@ interface ReviewRender {
   air_slot: "tuesday_long_form" | "friday_long_form" | "nightly_short";
   created_at: string;
   videoUrl: string | null;
+  previewDescriptionText: string;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -108,6 +109,15 @@ export function ReviewCard({ render }: { render: ReviewRender }) {
         </div>
 
         <div>
+          <p className="text-xs uppercase tracking-wide text-neutral-500">
+            Description that will be published (auto-generated)
+          </p>
+          <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded border border-neutral-800 bg-neutral-950 p-2 text-neutral-300">
+            {render.previewDescriptionText}
+          </p>
+        </div>
+
+        <div>
           <p className="text-xs uppercase tracking-wide text-neutral-500">Script</p>
           <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-neutral-800 bg-neutral-950 p-2 text-neutral-300">
             {render.script_body}
@@ -133,7 +143,8 @@ export function ReviewCard({ render }: { render: ReviewRender }) {
           <div className="space-y-2 rounded border border-neutral-800 bg-neutral-950 p-2">
             <p className="text-xs text-neutral-500">
               Optional publish-metadata overrides only — these change what gets
-              uploaded to YouTube, not the rendered video itself.
+              uploaded to YouTube, not the rendered video itself. Leave blank to
+              publish with the auto-generated title/description shown above.
             </p>
             <label className="block text-xs text-neutral-500" htmlFor={`title-${render.render_id}`}>
               Edited title
@@ -155,6 +166,7 @@ export function ReviewCard({ render }: { render: ReviewRender }) {
               value={editedDescription}
               onChange={(e) => setEditedDescription(e.target.value)}
               rows={2}
+              placeholder="Leave blank to publish the auto-generated description above"
               className="w-full rounded border border-neutral-700 bg-neutral-900 p-2 text-neutral-100"
             />
           </div>
