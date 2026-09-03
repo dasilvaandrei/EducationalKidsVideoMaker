@@ -85,14 +85,12 @@ export interface ScriptContent {
   promptVersion: string;
 }
 
-// Fixed across every script — locks in consistency (the LLM had been
-// independently landing on "Pip" of its own accord across separate calls,
-// which is a coincidence, not a guarantee) and matters mechanically now:
-// the counting-quantity display (TopicDisplay.tsx) always illustrates a
-// number by showing that many pictures of the mascot itself, so the
-// script needs to reliably call the mascot the same name every time for
-// "count N Pips" framing to make sense.
-const MASCOT_NAME = "Pip";
+// Fixed across every script — locks in consistency and matters
+// mechanically: the counting-quantity display (TopicDisplay.tsx) always
+// illustrates a number by showing that many pictures of the mascot
+// itself, so the script needs to reliably call the mascot the same name
+// every time for "count N Paulas" framing to make sense.
+const MASCOT_NAME = "Paula";
 
 function buildSystemPrompt(topic: TopicRow, format: Format, avoidList: string[]): string {
   const band = WORD_COUNT_BANDS[format];
