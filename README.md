@@ -69,6 +69,11 @@ automation has been proven working in CI, not just locally.
    posting-schedule callout, subscribe CTA, curriculum hashtags, channel
    blurb) — modeled on how established creator channels structure theirs,
    without adopting the sibling project's ALL-CAPS/emoji-spam style.
+   **Shorts only** also cross-post to TikTok and Instagram Reels
+   (`worker/src/lib/tiktok.ts` / `instagram.ts`), automatically, the moment
+   a `platform_accounts` row exists for that platform — see "Cross-posting
+   to TikTok/Instagram" below for current status. Long-form episodes stay
+   YouTube-only.
 
 ## Scheduling (GitHub Actions, live)
 
@@ -156,6 +161,34 @@ live, not just theorized: a manual test published a video with
 "unverified app" warning — expected and harmless, click through as the
 account owner.
 
+## Cross-posting to TikTok/Instagram
+
+Code is built (`worker/src/lib/tiktok.ts`, `worker/src/lib/instagram.ts`,
+`worker/src/jobs/tiktok-oauth-bootstrap.ts`,
+`worker/src/jobs/meta-oauth-bootstrap.ts`), but publishing to either
+platform is currently a no-op — `publish-episode.ts` only ever fans out to
+platforms that have a real `platform_accounts` row, and none exist yet for
+tiktok/instagram. To turn this on for real:
+
+1. Create a TikTok Business account and an Instagram Professional account
+   for Paula, register a TikTok developer app (`video.publish` scope) and
+   a Meta developer app, and run the two bootstrap scripts above to get
+   real tokens into `.env` (see the comments at the top of each script).
+2. Insert `platform_accounts` rows for `tiktok`/`instagram` — the
+   `platforms` rows themselves already exist
+   (`supabase/migrations/20260903030000_add_tiktok_instagram_platforms.sql`).
+3. TikTok's Content Posting API forces every post to `privacy_level
+   SELF_ONLY` (visible only to the poster) until TikTok's separate
+   Content Posting API audit passes (2-4 weeks) — submit that audit early;
+   develop/test against `SELF_ONLY` posts while it's in flight. Instagram
+   needs no App Review at all as long as this only ever posts to Paula's
+   own account.
+4. Manually run `publish-episode` once against a single approved Short and
+   confirm real posts land (check what was *actually* saved, same
+   `actualPrivacyStatus`-style verification already done for YouTube)
+   before adding the new secrets to `publish-short-nightly.yml`'s env
+   block and trusting the unattended cron with them.
+
 ## Setup
 
 ```bash
@@ -179,7 +212,10 @@ npm run remotion:studio      # preview compositions with real/dummy data
 
 Each stage also has its own standalone script (`pick-topic`,
 `write-script`, `safety-check`, `generate-voiceover`, `render-episode`)
-for running one step by hand — see `worker/package.json`.
+for running one step by hand — see `worker/package.json`. Token bootstrap
+scripts (`youtube-oauth-bootstrap`, `tiktok-oauth-bootstrap`,
+`meta-oauth-bootstrap`) are also run by hand, only when a token needs
+(re)issuing — not part of the automated pipeline.
 
 ### Dashboard
 

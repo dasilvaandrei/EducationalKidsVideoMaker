@@ -14,6 +14,8 @@
     "recolor-mascot": "tsx src/jobs/recolor-mascot.ts",
     "publish-episode": "tsx src/jobs/publish-episode.ts",
     "youtube-oauth-bootstrap": "tsx src/jobs/youtube-oauth-bootstrap.ts",
+    "tiktok-oauth-bootstrap": "tsx src/jobs/tiktok-oauth-bootstrap.ts",
+    "meta-oauth-bootstrap": "tsx src/jobs/meta-oauth-bootstrap.ts",
     "remotion:studio": "remotion studio src/remotion/index.ts"
   },
   "dependencies": {
