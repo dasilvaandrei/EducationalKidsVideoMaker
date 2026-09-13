@@ -17,6 +17,7 @@
     "tiktok-oauth-bootstrap": "tsx --env-file=../.env src/jobs/tiktok-oauth-bootstrap.ts",
     "tiktok-upload-test": "tsx --env-file=../.env src/jobs/tiktok-upload-test.ts",
     "meta-oauth-bootstrap": "tsx --env-file=../.env src/jobs/meta-oauth-bootstrap.ts",
+    "instagram-upload-test": "tsx --env-file=../.env src/jobs/instagram-upload-test.ts",
     "remotion:studio": "remotion studio src/remotion/index.ts"
   },
   "dependencies": {
