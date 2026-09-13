@@ -10,6 +10,7 @@
     "safety-check": "tsx src/jobs/safety-check.ts",
     "generate-voiceover": "tsx src/jobs/generate-voiceover.ts",
     "render-episode": "tsx src/jobs/render-episode.ts",
+    "review-episode": "tsx src/jobs/review-episode.ts",
     "generate-assets": "tsx src/jobs/generate-assets.ts",
     "recolor-mascot": "tsx src/jobs/recolor-mascot.ts",
     "publish-episode": "tsx src/jobs/publish-episode.ts",

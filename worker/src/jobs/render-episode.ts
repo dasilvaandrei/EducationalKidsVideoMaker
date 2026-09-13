@@ -124,31 +124,37 @@ async function resolveVocabularyImages(words: string[]): Promise<Record<string, 
   return images;
 }
 
-export async function renderQueuedEpisodes(): Promise<void> {
-  const { data: renders, error } = await supabase
-    .from("renders")
-    .select(
-      "id, episode_id, aspect_ratio, episodes(topics(slug, category)), scripts(title_suggestion, key_vocabulary, topic_scene_anchor, home_scene_anchor), voiceovers(storage_path, duration_seconds, captions)"
-    )
-    .eq("render_status", "queued")
-    .returns<QueuedRender[]>();
+const RENDER_JOIN_SELECT =
+  "id, episode_id, aspect_ratio, episodes(topics(slug, category)), scripts(title_suggestion, key_vocabulary, topic_scene_anchor, home_scene_anchor), voiceovers(storage_path, duration_seconds, captions)";
+
+// Renders one 'queued' row through to 'ready' (or 'failed'): resolves
+// assets, renders through Remotion, uploads video + ($0, 16:9-only)
+// thumbnail, and advances both the render and its episode's status.
+// Extracted out of the old renderQueuedEpisodes loop body so
+// review-episode.ts can call it directly too, for its re-render-and-
+// recheck retry loop on a rejected review — see that file's
+// reviewRenderWithRetries. Returns whether the render succeeded; never
+// throws (mirrors the try/catch the old inline loop body had, so one bad
+// render still can't take down a caller's batch).
+export async function renderSingleRender(renderId: string): Promise<boolean> {
+  const { data: render, error } = await supabase.from("renders").select(RENDER_JOIN_SELECT).eq("id", renderId).single<QueuedRender>();
   if (error) throw error;
 
-  console.log(`${renders?.length ?? 0} renders queued`);
-  if (!renders || renders.length === 0) return;
+  const voiceover = voiceoverOf(render);
+  if (!voiceover || !voiceover.storage_path) {
+    console.warn(`skip render ${render.id}: no ready voiceover`);
+    return false;
+  }
 
-  // Storage paths are fixed for every render this run, looked up once up
-  // front — if any are missing, no render in this batch can succeed, so
-  // bail out without touching any renders row (they stay 'queued' for the
-  // next run, once generate-assets has been run). The signed URLs
-  // themselves are NOT resolved here, though: a batch can contain several
-  // long-form renders and run well past a signed URL's TTL before it
-  // reaches the later items, so each render below signs these paths
-  // fresh right before it runs instead of reusing one signed up front
-  // (which previously caused later renders in a long batch to fetch an
-  // expired URL and fail with an image-decode error). The topic-scene
-  // background is NOT fixed across renders (it's per-topic) and was
-  // already resolved inside the per-render loop.
+  // Storage paths resolved BEFORE this render's status is touched at
+  // all: if generate-assets hasn't been run yet, that's an environmental
+  // problem, not a bad render, so leave the row 'queued' for automatic
+  // retry once assets exist rather than marking it 'failed' (which would
+  // stop it from ever being picked up again). Looked up fresh per call
+  // rather than shared/cached across a batch, since this function can
+  // now be called standalone by a retry loop too, not just from inside
+  // renderQueuedEpisodes' batch — the extra image_assets reads are cheap
+  // and this isn't a hot path.
   let mascotIdlePath: string;
   let mascotBlinkPath: string;
   let mascotMouthOpenPath: string;
@@ -170,153 +176,151 @@ export async function renderQueuedEpisodes(): Promise<void> {
         lookupFixedAssetPath("background", "living_room"),
       ]);
   } catch (err) {
-    console.error("render-episode: required image assets not ready:", err instanceof Error ? err.message : err);
-    return;
+    console.error(`render ${render.id}: required image assets not ready:`, err instanceof Error ? err.message : err);
+    return false;
   }
 
-  for (const render of renders) {
-    const voiceover = voiceoverOf(render);
-    if (!voiceover || !voiceover.storage_path) {
-      console.warn(`skip render ${render.id}: no ready voiceover`);
-      continue;
+  // Optimistic lock: only proceed if still queued (guards against a
+  // second concurrent worker process picking up the same row).
+  await supabase.from("renders").update({ render_status: "rendering" }).eq("id", render.id).eq("render_status", "queued");
+
+  const dir = await mkdtemp(join(tmpdir(), "render-"));
+  const outputPath = join(dir, "output.mp4");
+
+  try {
+    const { data: signed, error: signError } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .createSignedUrl(voiceover.storage_path, SIGNED_URL_TTL_SECONDS);
+    if (signError) throw signError;
+
+    // Script-only on purpose — no fallback to the topic's pre-seeded
+    // vocabulary list, so a pop-up only ever appears for a word this
+    // episode's actual script uses.
+    const words = [...new Set(scriptVocabOf(render).map((w) => w.trim().toLowerCase()).filter(Boolean))];
+    const vocabularyImages = await resolveVocabularyImages(words);
+
+    const topic = topicOf(render);
+    if (!topic) throw new Error(`render ${render.id}: episode has no joined topic`);
+
+    const [
+      mascotIdleSrc,
+      mascotBlinkSrc,
+      mascotMouthOpenSrc,
+      mascotWaveSrc,
+      mascotClapSrc,
+      mascotPointSrc,
+      mascotThinkSrc,
+      livingRoomSrc,
+      topicSceneSrc,
+    ] = await Promise.all([
+      resolveSignedUrl(mascotIdlePath),
+      resolveSignedUrl(mascotBlinkPath),
+      resolveSignedUrl(mascotMouthOpenPath),
+      resolveSignedUrl(mascotWavePath),
+      resolveSignedUrl(mascotClapPath),
+      resolveSignedUrl(mascotPointPath),
+      resolveSignedUrl(mascotThinkPath),
+      resolveSignedUrl(livingRoomPath),
+      lookupFixedAssetPath("background", topic.slug).then(resolveSignedUrl),
+    ]);
+
+    const script = scriptOf(render);
+    const totalDurationMs = (voiceover.duration_seconds ?? 0) * 1000;
+    const { topicSceneMs, homeSceneMs } = resolveSceneTransitions(
+      voiceover.captions,
+      script?.topic_scene_anchor ?? null,
+      script?.home_scene_anchor ?? null,
+      totalDurationMs
+    );
+
+    const props: RenderProps = {
+      audioSrc: signed.signedUrl,
+      captions: voiceover.captions,
+      mascotIdleSrc,
+      mascotBlinkSrc,
+      mascotMouthOpenSrc,
+      mascotWaveSrc,
+      mascotClapSrc,
+      mascotPointSrc,
+      mascotThinkSrc,
+      livingRoomSrc,
+      topicSceneSrc,
+      topicSceneStartMs: topicSceneMs,
+      homeSceneStartMs: homeSceneMs,
+      vocabularyImages,
+      title: script?.title_suggestion ?? "",
+      heroWord: scriptVocabOf(render)[0] ?? "",
+      topicCategory: topic.category,
+    };
+
+    await renderEpisode(render.aspect_ratio, props, outputPath);
+
+    const objectPath = `renders/${render.id}.mp4`;
+    const fileBuffer = await readFile(outputPath);
+    const { error: uploadError } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .upload(objectPath, fileBuffer, { contentType: "video/mp4", upsert: true });
+    if (uploadError) throw uploadError;
+
+    // Derived the same way Root.tsx's calculateMetadata sizes the
+    // render, rather than re-probing the output mp4 — avoids pulling
+    // mediabunny's file-reading path into this job for a number we can
+    // already compute exactly from the voiceover's own known duration.
+    const durationSeconds = (voiceover.duration_seconds ?? 0) + TRAILING_HOLD_FRAMES / FPS;
+
+    // $0 thumbnail: capture a frame of the ThumbnailCard overlay every
+    // render already composites (see render.ts's renderEpisodeThumbnail)
+    // instead of generating separate custom art. 16:9 only — Shorts
+    // don't support YouTube's thumbnails.set, and TikTok/Instagram pick
+    // their cover by timestamp directly from the uploaded video, not a
+    // separate image (see lib/meta.ts / lib/tiktok.ts).
+    let thumbnailPath: string | null = null;
+    if (render.aspect_ratio === "16:9") {
+      const thumbnailOutputPath = join(dir, "thumbnail.png");
+      await renderEpisodeThumbnail(props, thumbnailOutputPath, THUMBNAIL_FRAME);
+      const thumbnailBuffer = await readFile(thumbnailOutputPath);
+      thumbnailPath = `thumbnails/${render.id}.png`;
+      const { error: thumbnailUploadError } = await supabase.storage
+        .from(MEDIA_BUCKET)
+        .upload(thumbnailPath, thumbnailBuffer, { contentType: "image/png", upsert: true });
+      if (thumbnailUploadError) throw thumbnailUploadError;
     }
 
-    // Optimistic lock: only proceed if still queued (guards against a
-    // second concurrent worker process picking up the same row).
-    await supabase.from("renders").update({ render_status: "rendering" }).eq("id", render.id).eq("render_status", "queued");
+    const { error: readyError } = await supabase
+      .from("renders")
+      .update({
+        storage_path: objectPath,
+        duration_seconds: durationSeconds,
+        render_status: "ready",
+        ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}),
+      })
+      .eq("id", render.id);
+    if (readyError) throw readyError;
 
-    const dir = await mkdtemp(join(tmpdir(), "render-"));
-    const outputPath = join(dir, "output.mp4");
+    // Advances episodes.status: rendering -> ready, i.e. eligible for
+    // the pending_reviews view once its safety check has also passed.
+    const { error: episodeReadyError } = await supabase.from("episodes").update({ status: "ready" }).eq("id", render.episode_id);
+    if (episodeReadyError) throw episodeReadyError;
 
-    try {
-      const { data: signed, error: signError } = await supabase.storage
-        .from(MEDIA_BUCKET)
-        .createSignedUrl(voiceover.storage_path, SIGNED_URL_TTL_SECONDS);
-      if (signError) throw signError;
+    console.log(`rendered ${render.id} -> ${objectPath} (${Object.keys(vocabularyImages).length}/${words.length} vocab images)`);
+    return true;
+  } catch (err) {
+    // One bad render shouldn't take down the rest of a caller's batch.
+    console.error(`render ${render.id} failed:`, err instanceof Error ? err.message : err);
+    await supabase.from("renders").update({ render_status: "failed" }).eq("id", render.id);
+    return false;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
-      // Script-only on purpose — no fallback to the topic's pre-seeded
-      // vocabulary list, so a pop-up only ever appears for a word this
-      // episode's actual script uses.
-      const words = [...new Set(scriptVocabOf(render).map((w) => w.trim().toLowerCase()).filter(Boolean))];
-      const vocabularyImages = await resolveVocabularyImages(words);
+export async function renderQueuedEpisodes(): Promise<void> {
+  const { data: renders, error } = await supabase.from("renders").select("id").eq("render_status", "queued").returns<{ id: string }[]>();
+  if (error) throw error;
 
-      const topic = topicOf(render);
-      if (!topic) throw new Error(`render ${render.id}: episode has no joined topic`);
-
-      // Signed fresh per render (see the note above the batch-start
-      // lookupFixedAssetPath calls) rather than reusing the batch-start
-      // URLs, which can outlive the TTL in a long batch.
-      const [
-        mascotIdleSrc,
-        mascotBlinkSrc,
-        mascotMouthOpenSrc,
-        mascotWaveSrc,
-        mascotClapSrc,
-        mascotPointSrc,
-        mascotThinkSrc,
-        livingRoomSrc,
-        topicSceneSrc,
-      ] = await Promise.all([
-        resolveSignedUrl(mascotIdlePath),
-        resolveSignedUrl(mascotBlinkPath),
-        resolveSignedUrl(mascotMouthOpenPath),
-        resolveSignedUrl(mascotWavePath),
-        resolveSignedUrl(mascotClapPath),
-        resolveSignedUrl(mascotPointPath),
-        resolveSignedUrl(mascotThinkPath),
-        resolveSignedUrl(livingRoomPath),
-        lookupFixedAssetPath("background", topic.slug).then(resolveSignedUrl),
-      ]);
-
-      const script = scriptOf(render);
-      const totalDurationMs = (voiceover.duration_seconds ?? 0) * 1000;
-      const { topicSceneMs, homeSceneMs } = resolveSceneTransitions(
-        voiceover.captions,
-        script?.topic_scene_anchor ?? null,
-        script?.home_scene_anchor ?? null,
-        totalDurationMs
-      );
-
-      const props: RenderProps = {
-        audioSrc: signed.signedUrl,
-        captions: voiceover.captions,
-        mascotIdleSrc,
-        mascotBlinkSrc,
-        mascotMouthOpenSrc,
-        mascotWaveSrc,
-        mascotClapSrc,
-        mascotPointSrc,
-        mascotThinkSrc,
-        livingRoomSrc,
-        topicSceneSrc,
-        topicSceneStartMs: topicSceneMs,
-        homeSceneStartMs: homeSceneMs,
-        vocabularyImages,
-        title: script?.title_suggestion ?? "",
-        heroWord: scriptVocabOf(render)[0] ?? "",
-        topicCategory: topic.category,
-      };
-
-      await renderEpisode(render.aspect_ratio, props, outputPath);
-
-      const objectPath = `renders/${render.id}.mp4`;
-      const fileBuffer = await readFile(outputPath);
-      const { error: uploadError } = await supabase.storage
-        .from(MEDIA_BUCKET)
-        .upload(objectPath, fileBuffer, { contentType: "video/mp4", upsert: true });
-      if (uploadError) throw uploadError;
-
-      // Derived the same way Root.tsx's calculateMetadata sizes the
-      // render, rather than re-probing the output mp4 — avoids pulling
-      // mediabunny's file-reading path into this job for a number we can
-      // already compute exactly from the voiceover's own known duration.
-      const durationSeconds = (voiceover.duration_seconds ?? 0) + TRAILING_HOLD_FRAMES / FPS;
-
-      // $0 thumbnail: capture a frame of the ThumbnailCard overlay every
-      // render already composites (see render.ts's renderEpisodeThumbnail)
-      // instead of generating separate custom art. 16:9 only — Shorts
-      // don't support YouTube's thumbnails.set, and TikTok/Instagram pick
-      // their cover by timestamp directly from the uploaded video, not a
-      // separate image (see lib/meta.ts / lib/tiktok.ts).
-      let thumbnailPath: string | null = null;
-      if (render.aspect_ratio === "16:9") {
-        const thumbnailOutputPath = join(dir, "thumbnail.png");
-        await renderEpisodeThumbnail(props, thumbnailOutputPath, THUMBNAIL_FRAME);
-        const thumbnailBuffer = await readFile(thumbnailOutputPath);
-        thumbnailPath = `thumbnails/${render.id}.png`;
-        const { error: thumbnailUploadError } = await supabase.storage
-          .from(MEDIA_BUCKET)
-          .upload(thumbnailPath, thumbnailBuffer, { contentType: "image/png", upsert: true });
-        if (thumbnailUploadError) throw thumbnailUploadError;
-      }
-
-      const { error: readyError } = await supabase
-        .from("renders")
-        .update({
-          storage_path: objectPath,
-          duration_seconds: durationSeconds,
-          render_status: "ready",
-          ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}),
-        })
-        .eq("id", render.id);
-      if (readyError) throw readyError;
-
-      // Advances episodes.status: rendering -> ready, i.e. eligible for
-      // the pending_reviews view once its safety check has also passed.
-      const { error: episodeReadyError } = await supabase
-        .from("episodes")
-        .update({ status: "ready" })
-        .eq("id", render.episode_id);
-      if (episodeReadyError) throw episodeReadyError;
-
-      console.log(`rendered ${render.id} -> ${objectPath} (${Object.keys(vocabularyImages).length}/${words.length} vocab images)`);
-    } catch (err) {
-      // One bad render shouldn't take down the rest of the batch.
-      console.error(`render ${render.id} failed:`, err instanceof Error ? err.message : err);
-      await supabase.from("renders").update({ render_status: "failed" }).eq("id", render.id);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+  console.log(`${renders?.length ?? 0} renders queued`);
+  for (const render of renders ?? []) {
+    await renderSingleRender(render.id);
   }
 }
 

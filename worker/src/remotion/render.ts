@@ -114,3 +114,48 @@ export async function renderEpisodeThumbnail(props: RenderProps, outputPath: str
 
   await renderStill({ composition, serveUrl, output: outputPath, inputProps, frame });
 }
+
+export interface FrameCapture {
+  frame: number;
+  path: string;
+}
+
+// Samples `sampleCount` stills evenly spaced across the composition's
+// real (audio-probed, via calculateMetadata) duration — used by
+// jobs/review-episode.ts so an LLM can visually QC a render without
+// downloading and decoding the actual uploaded mp4. Deterministic: same
+// props/frame in, same pixels out, so this is pixel-accurate to what
+// renderEpisode() actually encoded. One selectComposition() call shared
+// across every renderStill in the batch, since it resolves the real
+// duration by fetching props.audioSrc — doing that once per frame would
+// mean N redundant fetches of the same audio file.
+export async function renderEpisodeFrames(
+  aspectRatio: AspectRatio,
+  props: RenderProps,
+  outputDir: string,
+  sampleCount: number
+): Promise<FrameCapture[]> {
+  const serveUrl = await getBundleLocation();
+  const inputProps: Record<string, unknown> = { ...props };
+
+  const composition = await selectComposition({
+    serveUrl,
+    id: COMPOSITION_IDS[aspectRatio],
+    inputProps,
+  });
+
+  const lastFrame = Math.max(0, composition.durationInFrames - 1);
+  // Fractions (1/(n+1) .. n/(n+1)) rather than an even 0..lastFrame split,
+  // so no sample lands exactly on frame 0 or the final (trailing-hold)
+  // frame — both are edge cases (pre-fade-in / held-still) rather than
+  // representative mid-render content.
+  const frames = Array.from({ length: sampleCount }, (_, i) => Math.round(((i + 1) / (sampleCount + 1)) * lastFrame));
+
+  const captures: FrameCapture[] = [];
+  for (const frame of frames) {
+    const outputPath = path.join(outputDir, `frame-${frame}.png`);
+    await renderStill({ composition, serveUrl, output: outputPath, inputProps, frame });
+    captures.push({ frame, path: outputPath });
+  }
+  return captures;
+}

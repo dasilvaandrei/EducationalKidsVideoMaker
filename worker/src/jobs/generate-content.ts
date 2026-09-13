@@ -19,6 +19,7 @@ import { writeScript } from "./write-script.js";
 import { runSafetyCheck } from "./safety-check.js";
 import { generateVoiceovers } from "./generate-voiceover.js";
 import { renderQueuedEpisodes } from "./render-episode.js";
+import { reviewPendingEpisodes } from "./review-episode.js";
 import { supabase } from "../lib/supabase.js";
 
 type AirSlot = "tuesday_long_form" | "friday_long_form" | "nightly_short";
@@ -90,6 +91,13 @@ export async function topUpContentBuffer(): Promise<void> {
 
   await generateVoiceovers();
   await renderQueuedEpisodes();
+  // Auto-stamps whatever just landed in pending_reviews (plus anything
+  // left over from a previous run) so approved content reaches the
+  // publish crons without a human opening the dashboard — see
+  // review-episode.ts. Runs over the whole queue, not just today's new
+  // episodes, so it also mops up anything an earlier run's review call
+  // failed on.
+  await reviewPendingEpisodes();
 
   console.log(`generate-content: topped up ${newEpisodeIds.length} episode(s)`);
 }
