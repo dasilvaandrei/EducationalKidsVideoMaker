@@ -29,7 +29,7 @@
 //   npm run publish-episode -- --air-slot tuesday_long_form --limit 1
 
 import { uploadYoutubeVideo } from "../lib/youtube.js";
-import { uploadTiktokVideo, type TiktokPrivacyLevel } from "../lib/tiktok.js";
+import { uploadVideoToInbox, refreshAccessToken as refreshTiktokAccessToken } from "../lib/tiktok.js";
 import { uploadInstagramReel } from "../lib/instagram.js";
 import { supabase } from "../lib/supabase.js";
 import type { TopicCategory } from "../remotion/categories.js";
@@ -53,14 +53,10 @@ const CATEGORY_ID = "27"; // Education
 const PRIVACY_STATUS =
   ((process.env.YOUTUBE_UPLOAD_PRIVACY_STATUS || undefined) as "private" | "unlisted" | "public" | undefined) ??
   "private";
-// Defaults to the safe, always-available option: unaudited TikTok apps are
-// forced to SELF_ONLY regardless of what's requested anyway (see
-// lib/tiktok.ts), so there's no real footgun in defaulting here the way
-// there was for YouTube — but keep the same explicit-env-var shape for
-// consistency and so flipping to PUBLIC_TO_EVERYONE post-audit is a config
-// change, not a code change.
-const TIKTOK_PRIVACY_LEVEL =
-  ((process.env.TIKTOK_UPLOAD_PRIVACY_LEVEL || undefined) as TiktokPrivacyLevel | undefined) ?? "SELF_ONLY";
+// Optional call-to-action line appended to every description/caption once
+// there's something to promote (e.g. an Amazon KDP book link) — a one-line
+// env var / secret addition, not a code change, when that day comes.
+const KDP_PROMO_LINE = process.env.KDP_PROMO_LINE?.trim() || undefined;
 
 const CURRICULUM_HASHTAGS = ["kidslearning", "preschool", "earlylearning"];
 const FALLBACK_TITLE = "Let's Learn Together!";
@@ -157,9 +153,9 @@ function buildDescription(
   if (format === "short") hashtags.push("#Shorts");
   const aboutBlurb = `${CHANNEL_NAME} is a channel made just for kids, with gentle songs, simple words, and lots of encouragement to count along, wave back, and join in the fun!`;
 
-  return [hook, learnLine, [scheduleLine, subscribeLine].join("\n"), hashtags.join(" "), aboutBlurb].join(
-    "\n\n"
-  );
+  const parts = [hook, learnLine, [scheduleLine, subscribeLine].join("\n"), hashtags.join(" "), aboutBlurb];
+  if (KDP_PROMO_LINE) parts.push(KDP_PROMO_LINE);
+  return parts.join("\n\n");
 }
 
 // TikTok/Instagram captions read much shorter and more hashtag-forward
@@ -173,7 +169,9 @@ function buildSocialCaption(
   const hook = editedDescription?.trim() || plainSummary(scriptBody);
   const categoryHashtag = topic.category.replace(/_/g, "");
   const hashtags = [...CURRICULUM_HASHTAGS, categoryHashtag].map((h) => `#${h}`).join(" ");
-  return `${hook}\n\n${hashtags}`;
+  const parts = [hook, hashtags];
+  if (KDP_PROMO_LINE) parts.push(KDP_PROMO_LINE);
+  return parts.join("\n\n");
 }
 
 function plainSummary(scriptBody: string | null): string {
@@ -329,8 +327,25 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
   }
 
   console.log(
-    `${eligible.length} episode(s) eligible for publish (platforms live: ${[...accountsByPlatform.keys()].join(", ")}; YOUTUBE_UPLOAD_PRIVACY_STATUS=${PRIVACY_STATUS}, TIKTOK_UPLOAD_PRIVACY_LEVEL=${TIKTOK_PRIVACY_LEVEL})`
+    `${eligible.length} episode(s) eligible for publish (platforms live: ${[...accountsByPlatform.keys()].join(", ")}; YOUTUBE_UPLOAD_PRIVACY_STATUS=${PRIVACY_STATUS}, TikTok mode=inbox/draft)`
   );
+
+  // Refreshed once up front and reused for the whole batch — a mid-batch
+  // rotation would otherwise invalidate the token this function started
+  // with (TikTok's refresh_token can rotate on every refresh call).
+  let tiktokAccessToken: string | null = null;
+  if (accountsByPlatform.has("tiktok")) {
+    const refreshToken = process.env.TIKTOK_REFRESH_TOKEN;
+    if (!refreshToken) throw new Error("TIKTOK_REFRESH_TOKEN must be set — run tiktok-oauth-bootstrap.ts first");
+    const tokens = await refreshTiktokAccessToken(refreshToken);
+    tiktokAccessToken = tokens.accessToken;
+    if (tokens.refreshToken !== refreshToken) {
+      console.warn(
+        "TikTok issued a NEW refresh token — update TIKTOK_REFRESH_TOKEN (.env and the GitHub secret) to:\n" +
+          tokens.refreshToken
+      );
+    }
+  }
 
   for (const render of eligible) {
     const episode = episodeOf(render);
@@ -389,17 +404,17 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
           }
         } else if (platformAccount.platformName === "tiktok") {
           videoBuffer ??= await fetchRenderBuffer(render.storage_path!);
-          const { publishId, status } = await uploadTiktokVideo(videoBuffer, {
-            title: socialCaption,
-            privacyLevel: TIKTOK_PRIVACY_LEVEL,
-          });
-          await markPublished(post.id, publishId);
-          console.log(`published ${render.id} -> tiktok publish_id=${publishId} (status=${status})`);
-          if (TIKTOK_PRIVACY_LEVEL !== "PUBLIC_TO_EVERYONE") {
-            console.warn(
-              `tiktok post ${publishId} used privacyLevel=${TIKTOK_PRIVACY_LEVEL} — expected pre-audit (see lib/tiktok.ts), not a bug.`
-            );
-          }
+          await uploadVideoToInbox(tiktokAccessToken!, videoBuffer);
+          await supabase
+            .from("posts")
+            .update({
+              status: "published",
+              error_message:
+                "Sent to TikTok inbox as a draft — needs manual tap-to-post in the app (no caption pre-filled; copy from this row's description column).",
+              published_at: new Date().toISOString(),
+            })
+            .eq("id", post.id);
+          console.log(`sent ${render.id} to TikTok inbox — open the app to finish posting`);
         } else {
           const videoUrl = await signRenderUrl(render.storage_path!, INSTAGRAM_SIGNED_URL_TTL_SECONDS);
           const { mediaId } = await uploadInstagramReel({ videoUrl, caption: socialCaption });

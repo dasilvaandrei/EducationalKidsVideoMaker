@@ -13,9 +13,10 @@
     "generate-assets": "tsx src/jobs/generate-assets.ts",
     "recolor-mascot": "tsx src/jobs/recolor-mascot.ts",
     "publish-episode": "tsx src/jobs/publish-episode.ts",
-    "youtube-oauth-bootstrap": "tsx src/jobs/youtube-oauth-bootstrap.ts",
-    "tiktok-oauth-bootstrap": "tsx src/jobs/tiktok-oauth-bootstrap.ts",
-    "meta-oauth-bootstrap": "tsx src/jobs/meta-oauth-bootstrap.ts",
+    "youtube-oauth-bootstrap": "tsx --env-file=../.env src/jobs/youtube-oauth-bootstrap.ts",
+    "tiktok-oauth-bootstrap": "tsx --env-file=../.env src/jobs/tiktok-oauth-bootstrap.ts",
+    "tiktok-upload-test": "tsx --env-file=../.env src/jobs/tiktok-upload-test.ts",
+    "meta-oauth-bootstrap": "tsx --env-file=../.env src/jobs/meta-oauth-bootstrap.ts",
     "remotion:studio": "remotion studio src/remotion/index.ts"
   },
   "dependencies": {

@@ -1,112 +1,62 @@
 // One-time (or periodic) manual OAuth bootstrap for TikTok's Content
 // Posting API. Not part of the automated pipeline: run it by hand
-// whenever TIKTOK_REFRESH_TOKEN needs replacing. Same loopback
-// authorization-code shape as youtube-oauth-bootstrap.ts.
+// whenever TIKTOK_REFRESH_TOKEN needs replacing.
 //
-// Prerequisite: a TikTok developer app registered at
-// developers.tiktok.com with the video.publish scope requested, and the
-// Paula TikTok account added as a sandbox/target user if the app hasn't
-// passed the Content Posting API audit yet. Until that audit passes,
-// every post made with this token is forced to privacy_level SELF_ONLY
-// regardless of what's requested — see lib/tiktok.ts.
+// TikTok's redirect_uri must be an HTTPS URL on a verified domain — it
+// cannot be a loopback address (http://127.0.0.1/...) on any platform,
+// confirmed against the sibling videoMaker project's working setup. So
+// this is a Web-platform app, not Desktop: this script prints the
+// authorization URL for you to open, and TikTok redirects the browser to
+// the static docs/oauth-callback.html page (served via GitHub Pages at
+// kidsvideomaker.andreidasilva.com — same page reused for the Instagram
+// bootstrap), which displays the returned `code` for you to paste back
+// here.
+//
+// Prerequisite: a TikTok developer app registered at developers.tiktok.com
+// with the Content Posting API product added, requesting both video.upload
+// and video.publish scopes, Website URL
+// https://kidsvideomaker.andreidasilva.com, Redirect URI
+// https://kidsvideomaker.andreidasilva.com/oauth-callback.html, and the
+// Paula TikTok account added as a sandbox/target user. publish-episode.ts
+// currently only uses video.upload (inbox/draft uploads — see
+// lib/tiktok.ts) since a brand-new unaudited app gets hard-rejected by
+// Direct Post; video.publish is requested up front anyway so the same
+// token works once the Content Posting API audit passes and
+// publish-episode.ts switches back to uploadTiktokVideo, no re-auth
+// needed.
+//
+// IMPORTANT: TikTok can rotate the refresh_token on every use (see
+// lib/tiktok.ts) — the value printed here is only good until the next
+// refresh, at which point whatever new value that refresh call returns
+// must replace it in .env and the GitHub secret.
 
-import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
-import { URL } from "node:url";
+import { createInterface } from "node:readline/promises";
+import { randomUUID } from "node:crypto";
+import { buildAuthorizationUrl, exchangeCodeForTokens } from "../lib/tiktok.js";
 
-const PORT = 8766;
-const REDIRECT_URI = `http://127.0.0.1:${PORT}/oauth/callback`;
-const SCOPE = "video.publish";
+const REDIRECT_URI = "https://kidsvideomaker.andreidasilva.com/oauth-callback.html";
 
-const clientKey = process.env.TIKTOK_CLIENT_KEY;
-const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+async function main() {
+  const state = randomUUID();
+  const authUrl = buildAuthorizationUrl(REDIRECT_URI, state);
 
-if (!clientKey || !clientSecret) {
-  throw new Error("TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET must be set");
+  console.log("Open this URL, log in as the Paula TikTok account, and approve:\n");
+  console.log(authUrl);
+  console.log("\nAfter approving, the browser lands on the callback page showing a code.");
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const code = (await rl.question("\nPaste the code here: ")).trim();
+  rl.close();
+
+  const tokens = await exchangeCodeForTokens(code, REDIRECT_URI);
+
+  console.log("\nACCESS_TOKEN:", tokens.accessToken, "(valid 24h — not saved anywhere, use tiktok-upload-test.ts instead)");
+  console.log("REFRESH_TOKEN:", tokens.refreshToken, "(valid 365 days, may rotate on next refresh)");
+  console.log("OPEN_ID:", tokens.openId);
+  console.log("\nAdd the refresh token to .env as TIKTOK_REFRESH_TOKEN, and to the GitHub Actions secret of the same name.");
 }
 
-const csrfState = randomBytes(16).toString("hex");
-
-async function exchangeCodeForTokens(code: string) {
-  const res = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache" },
-    body: new URLSearchParams({
-      client_key: clientKey!,
-      client_secret: clientSecret!,
-      code,
-      grant_type: "authorization_code",
-      redirect_uri: REDIRECT_URI,
-    }),
-  });
-  const body = await res.json();
-  if (!res.ok || body.error) {
-    throw new Error(`token exchange failed: ${res.status} ${JSON.stringify(body)}`);
-  }
-  return body as { access_token: string; refresh_token: string; expires_in: number };
-}
-
-function buildAuthUrl(): string {
-  const url = new URL("https://www.tiktok.com/v2/auth/authorize/");
-  url.searchParams.set("client_key", clientKey!);
-  url.searchParams.set("redirect_uri", REDIRECT_URI);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", SCOPE);
-  url.searchParams.set("state", csrfState);
-  return url.toString();
-}
-
-const server = createServer(async (req, res) => {
-  if (!req.url?.startsWith("/oauth/callback")) {
-    res.writeHead(404).end();
-    return;
-  }
-
-  const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-
-  if (error) {
-    res.writeHead(400, { "Content-Type": "text/plain" }).end(`OAuth error: ${error}`);
-    console.error(`OAuth error: ${error}`);
-    server.close();
-    process.exit(1);
-  }
-
-  if (state !== csrfState) {
-    res.writeHead(400, { "Content-Type": "text/plain" }).end("State mismatch — possible CSRF, aborting.");
-    console.error("state param didn't match — aborting");
-    server.close();
-    process.exit(1);
-  }
-
-  if (!code) {
-    res.writeHead(400, { "Content-Type": "text/plain" }).end("Missing code param");
-    return;
-  }
-
-  try {
-    const tokens = await exchangeCodeForTokens(code);
-    res
-      .writeHead(200, { "Content-Type": "text/plain" })
-      .end("Success — you can close this tab and return to the terminal.");
-
-    console.log("\nREFRESH_TOKEN:", tokens.refresh_token);
-    console.log("\nAdd this to .env as TIKTOK_REFRESH_TOKEN.");
-    server.close();
-    process.exit(0);
-  } catch (err) {
-    res.writeHead(500, { "Content-Type": "text/plain" }).end("Token exchange failed — see terminal.");
-    console.error(err);
-    server.close();
-    process.exit(1);
-  }
-});
-
-server.listen(PORT, () => {
-  console.log(`Listening on ${REDIRECT_URI}\n`);
-  console.log("Open this URL, sign in with the Paula TikTok account, and approve:\n");
-  console.log(buildAuthUrl());
-  console.log("");
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
 });

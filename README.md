@@ -164,30 +164,55 @@ account owner.
 ## Cross-posting to TikTok/Instagram
 
 Code is built (`worker/src/lib/tiktok.ts`, `worker/src/lib/instagram.ts`,
-`worker/src/jobs/tiktok-oauth-bootstrap.ts`,
+`worker/src/lib/meta.ts`, `worker/src/jobs/tiktok-oauth-bootstrap.ts`,
 `worker/src/jobs/meta-oauth-bootstrap.ts`), but publishing to either
 platform is currently a no-op — `publish-episode.ts` only ever fans out to
 platforms that have a real `platform_accounts` row, and none exist yet for
-tiktok/instagram. To turn this on for real:
+tiktok/instagram. New TikTok Business + Instagram Professional accounts
+for Paula already exist; the developer apps still need registering. To
+turn this on for real:
 
-1. Create a TikTok Business account and an Instagram Professional account
-   for Paula, register a TikTok developer app (`video.publish` scope) and
-   a Meta developer app, and run the two bootstrap scripts above to get
-   real tokens into `.env` (see the comments at the top of each script).
-2. Insert `platform_accounts` rows for `tiktok`/`instagram` — the
+1. Register a TikTok developer app at developers.tiktok.com: add the
+   Content Posting API product, request both `video.upload` and
+   `video.publish` scopes, and add the Paula TikTok account as a
+   sandbox/target user. Register a Meta developer app at
+   developers.facebook.com: add the "Instagram API with Instagram Login"
+   product, set its OAuth redirect URI to
+   `https://kidsvideomaker.andreidasilva.com/oauth-callback.html`
+   (served from `docs/oauth-callback.html` via GitHub Pages), and add the
+   Paula Instagram account as an Instagram tester (accept the invite from
+   the Instagram account's own Settings -> Apps and websites).
+2. Run `npm run tiktok-oauth-bootstrap` and `npm run meta-oauth-bootstrap`
+   (see the comments at the top of each script) to get real tokens into
+   `.env`.
+3. Insert `platform_accounts` rows for `tiktok`/`instagram` — the
    `platforms` rows themselves already exist
    (`supabase/migrations/20260903030000_add_tiktok_instagram_platforms.sql`).
-3. TikTok's Content Posting API forces every post to `privacy_level
-   SELF_ONLY` (visible only to the poster) until TikTok's separate
-   Content Posting API audit passes (2-4 weeks) — submit that audit early;
-   develop/test against `SELF_ONLY` posts while it's in flight. Instagram
-   needs no App Review at all as long as this only ever posts to Paula's
-   own account.
-4. Manually run `publish-episode` once against a single approved Short and
-   confirm real posts land (check what was *actually* saved, same
-   `actualPrivacyStatus`-style verification already done for YouTube)
-   before adding the new secrets to `publish-short-nightly.yml`'s env
-   block and trusting the unattended cron with them.
+4. **TikTok posts go to the account's inbox as drafts, not live
+   automatically** (`uploadVideoToInbox` in `lib/tiktok.ts`) — confirmed in
+   the sibling videoMaker project that a brand-new, unaudited app's Direct
+   Post calls are hard-rejected with
+   `unaudited_client_can_only_post_to_private_accounts` regardless of
+   privacy level, so there's no automated-public path until TikTok's
+   Content Posting API audit passes. Submit that audit early. Until then,
+   an operator has to open the TikTok app and tap "Post" for each episode,
+   pasting the caption from the `posts` row's `description` column (the
+   inbox endpoint has no caption field at all). `uploadTiktokVideo` (Direct
+   Post) is kept intact in `lib/tiktok.ts` for switching back once the
+   audit passes — a one-line change in `publish-episode.ts`, not a rewrite.
+5. Instagram publishing goes through the real OAuth Business Login flow
+   (`lib/meta.ts`), not the Meta dashboard's token shortcut — that shortcut
+   token can't be exchanged for a long-lived one (confirmed in videoMaker).
+   No App Review needed since this only ever posts to Paula's own account.
+6. Manually run `publish-episode` once against a single approved Short and
+   confirm real posts land (Instagram publishes automatically; TikTok
+   lands in the inbox for a manual tap) before trusting the unattended
+   nightly cron with the new secrets in `publish-short-nightly.yml`.
+
+An optional `KDP_PROMO_LINE` env var/secret appends a one-line
+call-to-action to every YouTube description and TikTok/Instagram caption
+(e.g. a future Amazon KDP book link) — unset today, so it's a no-op until
+there's something to promote.
 
 ## Setup
 

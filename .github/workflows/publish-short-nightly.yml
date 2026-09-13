@@ -21,7 +21,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Publish next nightly Short to YouTube
+      - name: Publish next nightly Short to YouTube/TikTok/Instagram
         working-directory: worker
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -33,4 +33,17 @@ jobs:
           # actualPrivacyStatus is actually honored for this brand-new,
           # unverified channel/OAuth app — see publish-episode.ts.
           YOUTUBE_UPLOAD_PRIVACY_STATUS: ${{ secrets.YOUTUBE_UPLOAD_PRIVACY_STATUS }}
+          # TikTok/Instagram: no-ops until platform_accounts rows exist for
+          # them (see README's "Cross-posting to TikTok/Instagram" section)
+          # — safe to leave these secrets unset until then.
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_INSTAGRAM_USER_ID: ${{ secrets.META_INSTAGRAM_USER_ID }}
+          # Optional CTA line appended to every description/caption once
+          # there's something to promote (e.g. an Amazon KDP book link).
+          KDP_PROMO_LINE: ${{ secrets.KDP_PROMO_LINE }}
         run: npm run publish-episode -- --air-slot nightly_short --limit 1
