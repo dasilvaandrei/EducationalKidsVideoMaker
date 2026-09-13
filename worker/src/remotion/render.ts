@@ -6,7 +6,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import type { EpisodeCompositionProps } from "./EpisodeComposition.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -91,4 +91,26 @@ export async function renderEpisode(
     // that cap and failed the upload. 1M leaves real headroom.
     videoBitrate: "1M",
   });
+}
+
+// Captures a single frame as a YouTube-ready thumbnail image, at $0
+// marginal cost: every episode already opens with ThumbnailCard.tsx's
+// title-card overlay (giant Paula + title + emoji, built from the same
+// mascot images generate-assets.ts generated once via Gemini and caches
+// forever), held fully opaque from frame 0 through HOLD_SECONDS (3.2s)
+// before crossfading out — any frame inside that window is a clean,
+// designed thumbnail with nothing else in the composition visible behind
+// it. 16:9 only: YouTube's thumbnails.set is what this feeds (see
+// lib/youtube.ts), and Shorts (9:16) don't support custom thumbnails.
+export async function renderEpisodeThumbnail(props: RenderProps, outputPath: string, frame: number): Promise<void> {
+  const serveUrl = await getBundleLocation();
+  const inputProps: Record<string, unknown> = { ...props };
+
+  const composition = await selectComposition({
+    serveUrl,
+    id: COMPOSITION_IDS["16:9"],
+    inputProps,
+  });
+
+  await renderStill({ composition, serveUrl, output: outputPath, inputProps, frame });
 }

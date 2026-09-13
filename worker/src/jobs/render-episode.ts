@@ -11,13 +11,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Caption } from "@remotion/captions";
-import { renderEpisode, type AspectRatio } from "../remotion/render.js";
+import { renderEpisode, renderEpisodeThumbnail, type AspectRatio, type RenderProps } from "../remotion/render.js";
 import { FPS, TRAILING_HOLD_FRAMES } from "../remotion/timing.js";
 import { resolveSceneTransitions } from "../lib/sceneAnchors.js";
 import { supabase } from "../lib/supabase.js";
 
 const MEDIA_BUCKET = "media";
 const SIGNED_URL_TTL_SECONDS = 60 * 30;
+// 1.5s into the render — safely inside ThumbnailCard's fully-opaque hold
+// window (0 to HOLD_SECONDS=3.2s, see ThumbnailCard.tsx) and before its
+// fade starts, so this always captures the clean, fully-formed card. Same
+// offset lib/instagram.ts defaults to for its cover-frame timestamp, for
+// consistency across platforms.
+const THUMBNAIL_FRAME = Math.round(1.5 * FPS);
 
 interface TopicJoin {
   // Doubles as the topic-scene background's image_assets asset_key (kind
@@ -231,29 +237,27 @@ export async function renderQueuedEpisodes(): Promise<void> {
         totalDurationMs
       );
 
-      await renderEpisode(
-        render.aspect_ratio,
-        {
-          audioSrc: signed.signedUrl,
-          captions: voiceover.captions,
-          mascotIdleSrc,
-          mascotBlinkSrc,
-          mascotMouthOpenSrc,
-          mascotWaveSrc,
-          mascotClapSrc,
-          mascotPointSrc,
-          mascotThinkSrc,
-          livingRoomSrc,
-          topicSceneSrc,
-          topicSceneStartMs: topicSceneMs,
-          homeSceneStartMs: homeSceneMs,
-          vocabularyImages,
-          title: script?.title_suggestion ?? "",
-          heroWord: scriptVocabOf(render)[0] ?? "",
-          topicCategory: topic.category,
-        },
-        outputPath
-      );
+      const props: RenderProps = {
+        audioSrc: signed.signedUrl,
+        captions: voiceover.captions,
+        mascotIdleSrc,
+        mascotBlinkSrc,
+        mascotMouthOpenSrc,
+        mascotWaveSrc,
+        mascotClapSrc,
+        mascotPointSrc,
+        mascotThinkSrc,
+        livingRoomSrc,
+        topicSceneSrc,
+        topicSceneStartMs: topicSceneMs,
+        homeSceneStartMs: homeSceneMs,
+        vocabularyImages,
+        title: script?.title_suggestion ?? "",
+        heroWord: scriptVocabOf(render)[0] ?? "",
+        topicCategory: topic.category,
+      };
+
+      await renderEpisode(render.aspect_ratio, props, outputPath);
 
       const objectPath = `renders/${render.id}.mp4`;
       const fileBuffer = await readFile(outputPath);
@@ -268,9 +272,32 @@ export async function renderQueuedEpisodes(): Promise<void> {
       // already compute exactly from the voiceover's own known duration.
       const durationSeconds = (voiceover.duration_seconds ?? 0) + TRAILING_HOLD_FRAMES / FPS;
 
+      // $0 thumbnail: capture a frame of the ThumbnailCard overlay every
+      // render already composites (see render.ts's renderEpisodeThumbnail)
+      // instead of generating separate custom art. 16:9 only — Shorts
+      // don't support YouTube's thumbnails.set, and TikTok/Instagram pick
+      // their cover by timestamp directly from the uploaded video, not a
+      // separate image (see lib/meta.ts / lib/tiktok.ts).
+      let thumbnailPath: string | null = null;
+      if (render.aspect_ratio === "16:9") {
+        const thumbnailOutputPath = join(dir, "thumbnail.png");
+        await renderEpisodeThumbnail(props, thumbnailOutputPath, THUMBNAIL_FRAME);
+        const thumbnailBuffer = await readFile(thumbnailOutputPath);
+        thumbnailPath = `thumbnails/${render.id}.png`;
+        const { error: thumbnailUploadError } = await supabase.storage
+          .from(MEDIA_BUCKET)
+          .upload(thumbnailPath, thumbnailBuffer, { contentType: "image/png", upsert: true });
+        if (thumbnailUploadError) throw thumbnailUploadError;
+      }
+
       const { error: readyError } = await supabase
         .from("renders")
-        .update({ storage_path: objectPath, duration_seconds: durationSeconds, render_status: "ready" })
+        .update({
+          storage_path: objectPath,
+          duration_seconds: durationSeconds,
+          render_status: "ready",
+          ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}),
+        })
         .eq("id", render.id);
       if (readyError) throw readyError;
 
@@ -293,8 +320,96 @@ export async function renderQueuedEpisodes(): Promise<void> {
   }
 }
 
+// One-off catch-up for renders that finished before thumbnail_path
+// existed: `ready`, 16:9, and still missing a thumbnail. Reuses the same
+// $0 ThumbnailCard-frame-capture approach as the main loop above, just
+// with placeholder values (real mascotIdleSrc reused as a stand-in) for
+// every field ThumbnailCard doesn't actually read — see
+// renderEpisodeThumbnail's comment in render.ts for why that's safe: the
+// card is fully opaque for the whole frame it's captured at.
+//
+// Usage: npm run render-episode -- --backfill-thumbnails
+export async function backfillMissingThumbnails(): Promise<void> {
+  const { data: renders, error } = await supabase
+    .from("renders")
+    .select(
+      "id, episode_id, aspect_ratio, episodes(topics(category)), scripts(title_suggestion, key_vocabulary), voiceovers(storage_path, captions)"
+    )
+    .eq("render_status", "ready")
+    .eq("aspect_ratio", "16:9")
+    .is("thumbnail_path", null)
+    .returns<QueuedRender[]>();
+  if (error) throw error;
+
+  console.log(`${renders?.length ?? 0} ready 16:9 render(s) missing a thumbnail`);
+  if (!renders || renders.length === 0) return;
+
+  const [mascotIdlePath, mascotWavePath] = await Promise.all([
+    lookupFixedAssetPath("mascot", "idle"),
+    lookupFixedAssetPath("mascot", "wave"),
+  ]);
+
+  for (const render of renders) {
+    const voiceover = voiceoverOf(render);
+    const topic = topicOf(render);
+    const script = scriptOf(render);
+    if (!voiceover?.storage_path || !topic) {
+      console.warn(`skip ${render.id}: missing voiceover or topic`);
+      continue;
+    }
+
+    const dir = await mkdtemp(join(tmpdir(), "thumb-"));
+    try {
+      const [audioSrc, mascotIdleSrc, mascotWaveSrc] = await Promise.all([
+        resolveSignedUrl(voiceover.storage_path),
+        resolveSignedUrl(mascotIdlePath),
+        resolveSignedUrl(mascotWavePath),
+      ]);
+
+      const props: RenderProps = {
+        audioSrc,
+        captions: voiceover.captions,
+        mascotIdleSrc,
+        mascotBlinkSrc: mascotIdleSrc,
+        mascotMouthOpenSrc: mascotIdleSrc,
+        mascotWaveSrc,
+        mascotClapSrc: mascotIdleSrc,
+        mascotPointSrc: mascotIdleSrc,
+        mascotThinkSrc: mascotIdleSrc,
+        livingRoomSrc: mascotIdleSrc,
+        topicSceneSrc: mascotIdleSrc,
+        topicSceneStartMs: 0,
+        homeSceneStartMs: 0,
+        vocabularyImages: {},
+        title: script?.title_suggestion ?? "",
+        heroWord: scriptVocabOf(render)[0] ?? "",
+        topicCategory: topic.category,
+      };
+
+      const outputPath = join(dir, "thumbnail.png");
+      await renderEpisodeThumbnail(props, outputPath, THUMBNAIL_FRAME);
+      const buffer = await readFile(outputPath);
+      const thumbnailPath = `thumbnails/${render.id}.png`;
+      const { error: uploadError } = await supabase.storage
+        .from(MEDIA_BUCKET)
+        .upload(thumbnailPath, buffer, { contentType: "image/png", upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { error: updateError } = await supabase.from("renders").update({ thumbnail_path: thumbnailPath }).eq("id", render.id);
+      if (updateError) throw updateError;
+
+      console.log(`backfilled thumbnail for ${render.id} -> ${thumbnailPath}`);
+    } catch (err) {
+      console.error(`backfill thumbnail for ${render.id} failed:`, err instanceof Error ? err.message : err);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  renderQueuedEpisodes()
+  const run = process.argv[2] === "--backfill-thumbnails" ? backfillMissingThumbnails : renderQueuedEpisodes;
+  run()
     .then(() => process.exit(0))
     .catch((err) => {
       console.error(err);
