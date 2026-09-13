@@ -11,6 +11,7 @@ import { Mascot } from "./Mascot.js";
 import { Captions } from "./Captions.js";
 import { SceneBackground } from "./SceneBackground.js";
 import { TopicDisplay } from "./TopicDisplay.js";
+import { ThumbnailCard } from "./ThumbnailCard.js";
 
 export type EpisodeCompositionProps = {
   // Must be real http(s) URLs — Remotion's server-side renderer only
@@ -42,6 +43,13 @@ export type EpisodeCompositionProps = {
   // episode's script/topic vocabulary (see render-episode.ts) — not the
   // full cross-topic image_assets table.
   vocabularyImages: Record<string, string>;
+  // Feed the opening ThumbnailCard title/emoji pick (see that file) — the
+  // episode's title suggestion, its script's hero word (key_vocabulary[0],
+  // per write-script.ts's "hero word FIRST" instruction), and the topic's
+  // curriculum category.
+  title: string;
+  heroWord: string;
+  topicCategory: string;
 };
 
 export const EpisodeComposition: React.FC<EpisodeCompositionProps> = ({
@@ -59,6 +67,9 @@ export const EpisodeComposition: React.FC<EpisodeCompositionProps> = ({
   topicSceneStartMs,
   homeSceneStartMs,
   vocabularyImages,
+  title,
+  heroWord,
+  topicCategory,
 }) => {
   return (
     <AbsoluteFill>
@@ -68,23 +79,26 @@ export const EpisodeComposition: React.FC<EpisodeCompositionProps> = ({
         topicSceneStartMs={topicSceneStartMs}
         homeSceneStartMs={homeSceneStartMs}
       />
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
-        <div style={{ width: "55%", maxWidth: 520 }}>
-          <Mascot
-            idleSrc={mascotIdleSrc}
-            blinkSrc={mascotBlinkSrc}
-            mouthOpenSrc={mascotMouthOpenSrc}
-            waveSrc={mascotWaveSrc}
-            clapSrc={mascotClapSrc}
-            pointSrc={mascotPointSrc}
-            thinkSrc={mascotThinkSrc}
-            captions={captions}
-          />
-        </div>
-      </AbsoluteFill>
+      <Mascot
+        idleSrc={mascotIdleSrc}
+        blinkSrc={mascotBlinkSrc}
+        mouthOpenSrc={mascotMouthOpenSrc}
+        waveSrc={mascotWaveSrc}
+        clapSrc={mascotClapSrc}
+        pointSrc={mascotPointSrc}
+        thinkSrc={mascotThinkSrc}
+        captions={captions}
+      />
       <TopicDisplay captions={captions} imagesByWord={vocabularyImages} mascotIconSrc={mascotIdleSrc} />
       <Captions captions={captions} />
       <Audio src={audioSrc} />
+      <ThumbnailCard
+        title={title}
+        heroWord={heroWord}
+        category={topicCategory}
+        mascotIdleSrc={mascotIdleSrc}
+        mascotWaveSrc={mascotWaveSrc}
+      />
     </AbsoluteFill>
   );
 };

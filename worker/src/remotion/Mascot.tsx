@@ -14,7 +14,7 @@
 // has to actually wave").
 
 import React, { useMemo } from "react";
-import { Img, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Caption } from "@remotion/captions";
 
 export type GestureKind = "wave" | "clap" | "point" | "think";
@@ -80,15 +80,51 @@ export const Mascot: React.FC<MascotProps> = ({
   captions,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
+  const t = frame / fps;
 
-  // Idle bounce: a gentle continuous up/down sway. All animation here MUST
-  // be driven by useCurrentFrame() (CSS animations don't render correctly
-  // in Remotion) — see the ecc:remotion-video-creation skill's animations
-  // rule.
+  // Fast idle bounce (layered on top of the slower roam below): a gentle
+  // continuous up/down sway. All animation here MUST be driven by
+  // useCurrentFrame() (CSS animations don't render correctly in Remotion)
+  // — see the ecc:remotion-video-creation skill's animations rule.
   const bounceCycleFrames = fps * 2;
   const bouncePhase = (frame % bounceCycleFrames) / bounceCycleFrames;
   const bounceY = Math.sin(bouncePhase * Math.PI * 2) * 10;
+
+  // Whole-character roam: Paula wanders around the screen instead of
+  // sitting dead-center, on top of shrinking/enlarging and periodic spins
+  // — purely a transform on the outer box (see the returned JSX), the
+  // pose image itself (src selection below) is untouched. Position is
+  // driven as a percentage of the frame so it scales correctly across
+  // both aspect ratios; amplitudes are kept inside the frame at the
+  // largest scale factor below so Paula never roams off-screen.
+  const roamXPercent = 50 + 16 * Math.sin((2 * Math.PI * t) / 6.5);
+  const roamYPercent = 50 + 11 * Math.sin((2 * Math.PI * t) / 5.2 + 1.1);
+
+  // Shrink/enlarge breathing, a slower and much larger swing than the
+  // talk-cycle bounce above so it reads as a deliberate size change.
+  const scaleBreath = 1 + 0.16 * Math.sin((2 * Math.PI * t) / 4.4);
+
+  // Periodic full-turn spin "trick": every SPIN_INTERVAL_SECONDS, spend
+  // SPIN_DURATION_FRAMES doing one full 360 turn, eased in/out so it
+  // doesn't snap; a gentle wobble plays the rest of the time so the
+  // character never looks perfectly rigid.
+  const SPIN_INTERVAL_FRAMES = fps * 9;
+  const SPIN_DURATION_FRAMES = fps * 0.9;
+  const framesIntoCycle = frame % SPIN_INTERVAL_FRAMES;
+  const wobbleDeg = 5 * Math.sin((2 * Math.PI * t) / 3.3);
+  const rotateDeg =
+    framesIntoCycle < SPIN_DURATION_FRAMES
+      ? interpolate(framesIntoCycle, [0, SPIN_DURATION_FRAMES], [0, 360], {
+          easing: Easing.inOut(Easing.ease),
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+        })
+      : wobbleDeg;
+
+  // Base on-screen size as a share of the shorter dimension, so it looks
+  // consistent across both the 16:9 and 9:16 compositions.
+  const baseSizePx = Math.min(width, height) * 0.42;
 
   // Blink: swap to the blink frame for a short recurring window,
   // independent of speech.
@@ -137,14 +173,19 @@ export const Mascot: React.FC<MascotProps> = ({
   const src = activeGesture ? gestureSrc[activeGesture] : isBlinking ? blinkSrc : speaking ? mouthOpenSrc : idleSrc;
 
   return (
-    <Img
-      src={src}
-      style={{
-        width: "100%",
-        height: "100%",
-        objectFit: "contain",
-        transform: `translateY(${bounceY}px)`,
-      }}
-    />
+    <AbsoluteFill>
+      <div
+        style={{
+          position: "absolute",
+          left: `${roamXPercent}%`,
+          top: `${roamYPercent}%`,
+          width: baseSizePx,
+          height: baseSizePx,
+          transform: `translate(-50%, -50%) translateY(${bounceY}px) rotate(${rotateDeg}deg) scale(${scaleBreath})`,
+        }}
+      >
+        <Img src={src} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+      </div>
+    </AbsoluteFill>
   );
 };

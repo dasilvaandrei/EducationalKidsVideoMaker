@@ -126,12 +126,22 @@ This video can only actually show a small, fixed set of things: ${MASCOT_NAME} t
 - Do not use "count"/"counting"/"number"/"numbers" themselves as key_vocabulary entries — they're abstract/meta words with no meaningful photo, not the concrete hero word.
 
 FIXED STRUCTURE (follow this order exactly):
-1. Mascot greeting — warm, upbeat, in-character hello.
+${
+  format === "short"
+    ? `1. Opening hook question — before anything else, ask the viewer a direct, curious question about today's topic or hero word (e.g. "Do you know what an elephant is?" or "Have you ever seen a real elephant?"). This is the very first line of the script, said in character before the greeting.
+2. Mascot greeting — warm, upbeat, in-character hello.
+3. Topic intro — tell the viewer what we're learning about today.
+4. Teaching with repetition — the core content, repeating key vocabulary per rule 2.
+5. One call-and-response beat (per rule 3).
+6. Recap — briefly restate what was learned.
+7. Closing catchphrase — a warm, consistent sign-off.`
+    : `1. Mascot greeting — warm, upbeat, in-character hello.
 2. Topic intro — tell the viewer what we're learning about today.
 3. Teaching with repetition — the core content, repeating key vocabulary per rule 2.
 4. One call-and-response beat (per rule 3).
 5. Recap — briefly restate what was learned.
-6. Closing catchphrase — a warm, consistent sign-off.
+6. Closing catchphrase — a warm, consistent sign-off.`
+}
 Do NOT include a "subscribe" call-to-action or any clickable-button language — this channel is Made for Kids, and YouTube strips clickable end-cards/subscribe buttons from that content anyway, so scripting one wastes the moment.
 
 HARD CONTENT BANS — the following must never appear, under any circumstances:
@@ -310,7 +320,9 @@ function buildRewriteSystemInstruction(topic: TopicRow, format: Format, feedback
 - Sentence length: every sentence capped at 8-10 words, simple enough for a 3-7 year old to follow by ear.
 - Punctuation: only periods, commas, question marks, and exclamation points. Never an em dash (—) or en dash (–), even for a "punchier" rewrite — split into two short sentences instead.
 - Keep the same hero word/topic focus and the same factual content — you are polishing the writing and performance, not changing what's being taught.
-- Preserve the exact structure: mascot greeting -> topic intro -> teaching with repetition -> exactly one call-and-response beat (marked with the literal tag "[PAUSE FOR RESPONSE]" immediately after the mascot asks the viewer a question) -> recap -> closing catchphrase.
+- Preserve the exact structure: ${
+    format === "short" ? "opening hook question to the viewer about today's topic (the very first line, before the greeting) -> " : ""
+  }mascot greeting -> topic intro -> teaching with repetition -> exactly one call-and-response beat (marked with the literal tag "[PAUSE FOR RESPONSE]" immediately after the mascot asks the viewer a question) -> recap -> closing catchphrase.
 - No "subscribe" call-to-action or clickable-button language of any kind.
 - HARD CONTENT BANS, unchanged from the draft: nothing scary or frightening, no violence or aggressive conflict even cartoonish, no unsafe behavior a child could imitate, no product/brand/junk-food pitches, no sad or traumatic themes, nothing a young child could dangerously misread.
 - VISUAL GROUNDING, unchanged from the draft: this video can only actually show ${MASCOT_NAME} the penguin (always on screen), the background, a real photo of the hero word, a color swatch when a color name is spoken, and — for a number word — that many little pictures of ${MASCOT_NAME}. Do NOT add or keep any "look at" / "do you see" language about anything else, and do NOT invent a different animal or object for a counting moment to count — if the draft already does this correctly, keep it that way; if you punch up a counting moment, count ${MASCOT_NAME} ("count five ${MASCOT_NAME}s"), not something else. Always call the mascot "${MASCOT_NAME}".

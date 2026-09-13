@@ -35,6 +35,9 @@ const defaultProps: Props = {
   topicSceneStartMs: 0,
   homeSceneStartMs: 0,
   vocabularyImages: {},
+  title: "",
+  heroWord: "",
+  topicCategory: "",
 };
 
 export const RemotionRoot: React.FC = () => {

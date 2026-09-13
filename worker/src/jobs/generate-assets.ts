@@ -79,8 +79,9 @@ const SCENE_STYLE_SUFFIX =
 // about this topic rather than a generic category stand-in — e.g. "Why
 // Does It Rain?" (science_how_things_work, vocab rain/cloud/water) reads
 // as a grassy field under clouds with rain falling, not a generic
-// "science" backdrop. Covers all 6 topics.category values from the
-// check constraint in init_schema.sql.
+// "science" backdrop. Covers all 7 topics.category values from the
+// check constraint (init_schema.sql as amended by
+// 20260913000000_retire_shapes_add_plants.sql).
 function buildTopicScenePrompt(topic: TopicSceneRow): string {
   const vocab = topic.key_vocabulary.slice(0, 4).join(", ");
   const heroWord = topic.key_vocabulary[0] ?? topic.title;
@@ -93,8 +94,11 @@ function buildTopicScenePrompt(topic: TopicSceneRow): string {
     case "animals":
       scene = `A cheerful natural habitat scene for the animal(s) in "${topic.title}" (${vocab}) — the specific kind of environment that animal actually lives in (jungle, savanna, ocean/reef, farm, arctic, forest, etc., chosen to match ${heroWord}), with open sky or background visible above.`;
       break;
-    case "colors_shapes":
-      scene = `A bright, playful outdoor scene built around the colors/shapes in "${topic.title}" (${vocab}) — those specific colors and shapes appearing naturally as balloons, blocks, kites, or painted playground markings scattered around the edges of the scene.`;
+    case "colors":
+      scene = `A bright, playful outdoor scene built around the colors in "${topic.title}" (${vocab}) — those specific colors appearing naturally as balloons, kites, flowers, or a rainbow scattered around the edges of the scene.`;
+      break;
+    case "plants":
+      scene = `A cheerful garden or meadow scene setting up "${topic.title}" (${vocab}) — real plants, flowers, trees, or growing seeds matching ${heroWord}, drawn clearly and simply enough for a preschooler to recognize.`;
       break;
     case "counting_numbers":
       scene = `A cheerful outdoor scene built around counting for "${topic.title}" (${vocab}) — a small, clearly countable group of simple objects (balloons, stars, blocks, flowers) matching the topic, arranged around the edges of the scene so they're easy to count.`;

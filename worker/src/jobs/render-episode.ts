@@ -23,6 +23,7 @@ interface TopicJoin {
   // Doubles as the topic-scene background's image_assets asset_key (kind
   // 'background') — see generate-assets.ts's ensureTopicSceneBackground.
   slug: string;
+  category: string;
 }
 
 interface EpisodeJoin {
@@ -30,6 +31,7 @@ interface EpisodeJoin {
 }
 
 interface ScriptJoin {
+  title_suggestion: string | null;
   key_vocabulary: string[] | null;
   topic_scene_anchor: string | null;
   home_scene_anchor: string | null;
@@ -120,7 +122,7 @@ export async function renderQueuedEpisodes(): Promise<void> {
   const { data: renders, error } = await supabase
     .from("renders")
     .select(
-      "id, episode_id, aspect_ratio, episodes(topics(slug)), scripts(key_vocabulary, topic_scene_anchor, home_scene_anchor), voiceovers(storage_path, duration_seconds, captions)"
+      "id, episode_id, aspect_ratio, episodes(topics(slug, category)), scripts(title_suggestion, key_vocabulary, topic_scene_anchor, home_scene_anchor), voiceovers(storage_path, duration_seconds, captions)"
     )
     .eq("render_status", "queued")
     .returns<QueuedRender[]>();
@@ -246,6 +248,9 @@ export async function renderQueuedEpisodes(): Promise<void> {
           topicSceneStartMs: topicSceneMs,
           homeSceneStartMs: homeSceneMs,
           vocabularyImages,
+          title: script?.title_suggestion ?? "",
+          heroWord: scriptVocabOf(render)[0] ?? "",
+          topicCategory: topic.category,
         },
         outputPath
       );

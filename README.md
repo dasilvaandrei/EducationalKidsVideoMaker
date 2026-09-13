@@ -20,10 +20,12 @@ automation has been proven working in CI, not just locally.
 
 ## How an episode actually gets made
 
-1. **`pick-topic`** rotates through a 48-topic curriculum bank (8 topics
-   each across phonics/ABCs, counting, colors/shapes, animals, science,
-   and emotions/manners), picking the least-recently-used topic in
-   whichever category needs one next.
+1. **`pick-topic`** rotates through a curriculum bank spanning phonics/ABCs,
+   counting, colors, animals, plants, science, and emotions/manners (no
+   shapes content — retired). It's a weighted-LRU pick across every
+   non-retired topic, not strict per-category round robin: animals,
+   plants, and counting are weighted to come up about twice as often as
+   the other categories.
 2. **`write-script`** is a two-stage pipeline: Claude drafts a
    structurally-correct script first (hard word-count/sentence-length
    constraints, a "visual grounding" rule that bans narration referencing

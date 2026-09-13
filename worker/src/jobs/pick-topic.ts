@@ -1,9 +1,16 @@
-// Curriculum rotation: picks the least-recently-used category, then the
-// least-recently-used topic within that category, and inserts a new
-// `episodes` row for it. "Least-recently-used" treats a topic/category
-// that has never been used (last_used_at is null) as older than any real
-// timestamp, so the rotation always drains brand-new topics before
-// repeating anything.
+// Curriculum rotation: picks a topic via weighted-LRU across every
+// non-retired topic (single stage, not category-then-topic) and inserts a
+// new `episodes` row for it. "Least-recently-used" treats a topic that has
+// never been used (last_used_at is null) as older than anything else,
+// full stop, regardless of weight — brand-new topics always go first.
+// Otherwise, a topic's pick priority is how long it's been since it was
+// last used, scaled by its category's weight (CATEGORY_WEIGHTS below): a
+// weight-2 category becomes "due again" in half the elapsed time a
+// weight-1 category needs, so it gets picked roughly twice as often over
+// the long run — this is how animals/plants/counting_numbers get emphasis
+// per the product ask, without needing more raw topics in those
+// categories. Retired topics (see the `retired` column, added when shapes
+// content was cut) are excluded from the query entirely.
 //
 // Usage:
 //   npm run pick-topic -- --format long_form --air-slot tuesday_long_form
@@ -16,6 +23,16 @@ const AIR_SLOTS = ["tuesday_long_form", "friday_long_form", "nightly_short"] as 
 
 type Format = (typeof FORMATS)[number];
 type AirSlot = (typeof AIR_SLOTS)[number];
+
+// Categories the product wants emphasized get picked roughly this many
+// times more often than a weight-1 category; anything not listed defaults
+// to 1 (see priorityOf below).
+const CATEGORY_WEIGHTS: Record<string, number> = {
+  animals: 2,
+  plants: 2,
+  counting_numbers: 2,
+};
+const DEFAULT_CATEGORY_WEIGHT = 1;
 
 interface TopicRow {
   id: string;
@@ -32,47 +49,29 @@ export interface PickTopicOptions {
   targetPublishDate?: string;
 }
 
-// null sorts before every real timestamp — "never used" beats "used long
-// ago" beats "used recently".
-function lastUsedRank(lastUsedAt: string | null): number {
-  return lastUsedAt ? new Date(lastUsedAt).getTime() : -Infinity;
+// Never-used always wins outright, regardless of category weight — a
+// brand-new topic should always be introduced before anything repeats.
+// Otherwise, priority is elapsed time since last use scaled by the
+// topic's category weight, so a higher-weight category reaches the same
+// priority sooner (see CATEGORY_WEIGHTS above) and gets picked more often.
+function priorityOf(topic: TopicRow): number {
+  if (!topic.last_used_at) return Infinity;
+  const elapsedMs = Date.now() - new Date(topic.last_used_at).getTime();
+  return elapsedMs * (CATEGORY_WEIGHTS[topic.category] ?? DEFAULT_CATEGORY_WEIGHT);
 }
 
 export async function pickTopic(options: PickTopicOptions): Promise<{ episodeId: string; topicId: string }> {
   const { data: topics, error } = await supabase
     .from("topics")
     .select("id, category, title, slug, last_used_at, use_count")
+    .eq("retired", false)
     .returns<TopicRow[]>();
   if (error) throw error;
   if (!topics || topics.length === 0) {
     throw new Error("no rows in topics — seed the curriculum bank before running pick-topic");
   }
 
-  const byCategory = new Map<string, TopicRow[]>();
-  for (const topic of topics) {
-    const list = byCategory.get(topic.category) ?? [];
-    list.push(topic);
-    byCategory.set(topic.category, list);
-  }
-
-  // Least-recently-used category = the category whose most-recently-used
-  // topic is the oldest (i.e. this category as a whole hasn't been
-  // touched in the longest time).
-  let bestCategory: string | null = null;
-  let bestCategoryRank = Infinity;
-  for (const [category, categoryTopics] of byCategory) {
-    const mostRecentRank = Math.max(...categoryTopics.map((t) => lastUsedRank(t.last_used_at)));
-    if (mostRecentRank < bestCategoryRank) {
-      bestCategoryRank = mostRecentRank;
-      bestCategory = category;
-    }
-  }
-  if (!bestCategory) throw new Error("failed to select a category — unreachable");
-
-  const candidates = byCategory.get(bestCategory)!;
-  const topic = candidates.reduce((oldest, current) =>
-    lastUsedRank(current.last_used_at) < lastUsedRank(oldest.last_used_at) ? current : oldest
-  );
+  const topic = topics.reduce((best, current) => (priorityOf(current) > priorityOf(best) ? current : best));
 
   const { data: episode, error: insertError } = await supabase
     .from("episodes")

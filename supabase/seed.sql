@@ -1,10 +1,13 @@
 -- Curriculum bank seed. Loaded automatically by `supabase db reset` for
 -- local dev (see config.toml's [db.seed] sql_paths). The live project was
--- seeded with this exact same content via the REST API on 2026-09-01 —
--- keep the two in sync if this list changes.
+-- seeded with this exact same content via the REST API on 2026-09-01, then
+-- updated to match this file's shape (colors_shapes -> colors + plants,
+-- shapes retired) via migration 20260913000000 — keep the two in sync if
+-- this list changes.
 --
--- 48 topics, 8 per category, rotating across the six early-learning
--- categories per the plan's "broad early-learning rotation" curriculum.
+-- 52 topics across seven early-learning categories. No shapes content
+-- (retired 2026-09-13); animals, plants, and counting_numbers are the
+-- emphasized categories (see pick-topic.ts's weighted-LRU selection).
 
 insert into topics (category, title, slug, key_vocabulary) values
   ('phonics_abcs', 'Letter A: Apple, Alligator, Ant', 'letter-a', array['apple','alligator','ant','A']),
@@ -25,14 +28,19 @@ insert into topics (category, title, slug, key_vocabulary) values
   ('counting_numbers', 'Odd One Out: Counting Groups', 'counting-groups', array['group','count','match','different']),
   ('counting_numbers', 'Counting by Twos', 'counting-by-twos', array['two','pair','count','twos']),
 
-  ('colors_shapes', 'Primary Colors: Red, Yellow, Blue', 'primary-colors', array['red','yellow','blue','color']),
-  ('colors_shapes', 'Circle and Square', 'circle-and-square', array['circle','square','round','corner']),
-  ('colors_shapes', 'Triangle and Star', 'triangle-and-star', array['triangle','star','point','shape']),
-  ('colors_shapes', 'Mixing Colors: Making Green and Purple', 'mixing-colors', array['green','purple','mix','color']),
-  ('colors_shapes', 'Colors in Nature', 'colors-in-nature', array['color','flower','sky','grass']),
-  ('colors_shapes', 'Shapes All Around Us', 'shapes-all-around-us', array['shape','circle','square','triangle']),
-  ('colors_shapes', 'Rainbow Colors', 'rainbow-colors', array['rainbow','red','orange','yellow','green','blue','purple']),
-  ('colors_shapes', 'Sorting by Shape', 'sorting-by-shape', array['sort','shape','same','group']),
+  ('colors', 'Primary Colors: Red, Yellow, Blue', 'primary-colors', array['red','yellow','blue','color']),
+  ('colors', 'Mixing Colors: Making Green and Purple', 'mixing-colors', array['green','purple','mix','color']),
+  ('colors', 'Colors in Nature', 'colors-in-nature', array['color','flower','sky','grass']),
+  ('colors', 'Rainbow Colors', 'rainbow-colors', array['rainbow','red','orange','yellow','green','blue','purple']),
+
+  ('plants', 'Parts of a Plant: Roots, Stem, Leaves', 'parts-of-a-plant', array['root','stem','leaf','plant']),
+  ('plants', 'How Do Seeds Grow?', 'how-do-seeds-grow', array['seed','sprout','soil','grow']),
+  ('plants', 'Flowers and Their Colors', 'flowers-and-their-colors', array['flower','petal','bloom','color']),
+  ('plants', 'Trees Give Us Shade', 'trees-give-us-shade', array['tree','branch','leaf','shade']),
+  ('plants', 'Fruits and Vegetables We Eat', 'fruits-and-vegetables-we-eat', array['fruit','vegetable','plant','eat']),
+  ('plants', 'Plants Need Sun and Water', 'plants-need-sun-and-water', array['sun','water','plant','grow']),
+  ('plants', 'Big Trees, Small Flowers', 'big-trees-small-flowers', array['tree','flower','big','small']),
+  ('plants', 'How Plants Help Animals', 'how-plants-help-animals', array['plant','animal','food','home']),
 
   ('animals', 'Farm Animals: Cow, Pig, Chicken', 'farm-animals', array['cow','pig','chicken','farm']),
   ('animals', 'Ocean Animals: Fish, Whale, Octopus', 'ocean-animals', array['fish','whale','octopus','ocean']),
