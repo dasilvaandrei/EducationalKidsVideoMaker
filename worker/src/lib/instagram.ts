@@ -17,9 +17,21 @@ import {
 const STATUS_POLL_INTERVAL_MS = 5000;
 const STATUS_POLL_MAX_ATTEMPTS = 36; // ~3 minutes total
 
+// Instagram has no custom-cover-image upload — the cover is just a frame
+// of the video itself, picked by timestamp (see meta.ts's thumbOffsetMs).
+// Every render opens with ThumbnailCard.tsx's title-card overlay, held at
+// full opacity from frame 0 until HOLD_SECONDS (3.2s) then crossfading out
+// over FADE_SECONDS (0.6s) — 1.5s lands comfortably inside the fully-held
+// window, well before the fade starts, so this picks a frame of that
+// designed card rather than an arbitrary mid-video moment.
+const DEFAULT_THUMB_OFFSET_MS = 1500;
+
 export interface InstagramUploadMetadata {
   videoUrl: string; // publicly-fetchable, e.g. a freshly-signed Supabase Storage URL
   caption: string;
+  // Overrides the default cover frame (see DEFAULT_THUMB_OFFSET_MS) if a
+  // caller ever needs a different moment; almost always left unset.
+  thumbOffsetMs?: number;
 }
 
 export interface InstagramUploadResult {
@@ -33,7 +45,13 @@ export async function uploadInstagramReel(metadata: InstagramUploadMetadata): Pr
     throw new Error("META_INSTAGRAM_USER_ID and META_ACCESS_TOKEN must be set — run meta-oauth-bootstrap.ts first");
   }
 
-  const containerId = await createMediaContainer(igUserId, accessToken, metadata.videoUrl, metadata.caption);
+  const containerId = await createMediaContainer(
+    igUserId,
+    accessToken,
+    metadata.videoUrl,
+    metadata.caption,
+    metadata.thumbOffsetMs ?? DEFAULT_THUMB_OFFSET_MS
+  );
   await waitUntilFinished(containerId, accessToken);
   const mediaId = await publishMediaContainer(igUserId, accessToken, containerId);
 

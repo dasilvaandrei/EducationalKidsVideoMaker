@@ -28,7 +28,7 @@
 //   npm run publish-episode -- --air-slot nightly_short   -> eligible episodes in one slot
 //   npm run publish-episode -- --air-slot tuesday_long_form --limit 1
 
-import { uploadYoutubeVideo } from "../lib/youtube.js";
+import { uploadYoutubeVideo, uploadYoutubeThumbnail } from "../lib/youtube.js";
 import { uploadVideoToInbox, refreshAccessToken as refreshTiktokAccessToken } from "../lib/tiktok.js";
 import { uploadInstagramReel } from "../lib/instagram.js";
 import { supabase } from "../lib/supabase.js";
@@ -88,6 +88,7 @@ interface ScriptJoin {
 interface EligibleRender {
   id: string;
   storage_path: string | null;
+  thumbnail_path: string | null;
   episode_id: string;
   episodes: EpisodeJoin | EpisodeJoin[] | null;
   scripts: ScriptJoin | ScriptJoin[] | null;
@@ -290,7 +291,7 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
   const { data: renders, error: rendersError } = await supabase
     .from("renders")
     .select(
-      "id, storage_path, episode_id, episodes(format, air_slot, topics(category, title, key_vocabulary)), scripts(title_suggestion, body)"
+      "id, storage_path, thumbnail_path, episode_id, episodes(format, air_slot, topics(category, title, key_vocabulary)), scripts(title_suggestion, body)"
     )
     .eq("render_status", "ready")
     .returns<EligibleRender[]>();
@@ -401,6 +402,28 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
             console.warn(
               `requested privacyStatus=${PRIVACY_STATUS} but YouTube saved it as ${actualPrivacyStatus} — don't assume public uploads are honored, verify manually.`
             );
+          }
+          // Non-fatal: a render's custom thumbnail is generated and
+          // attached out-of-band (see jobs/set-thumbnail.ts) and won't
+          // always exist yet, and thumbnails.set also requires a
+          // phone-verified channel — either way, a video that's already
+          // live shouldn't be marked failed over its thumbnail.
+          if (render.thumbnail_path) {
+            try {
+              const { data: thumbBlob, error: thumbError } = await supabase.storage
+                .from(MEDIA_BUCKET)
+                .download(render.thumbnail_path);
+              if (thumbError) throw thumbError;
+              const thumbBuffer = Buffer.from(await thumbBlob.arrayBuffer());
+              const contentType = render.thumbnail_path.endsWith(".png") ? "image/png" : "image/jpeg";
+              await uploadYoutubeThumbnail(videoId, thumbBuffer, contentType);
+              console.log(`set custom thumbnail for ${render.id} from ${render.thumbnail_path}`);
+            } catch (thumbErr) {
+              console.warn(
+                `set thumbnail for ${render.id} failed (video is still published):`,
+                thumbErr instanceof Error ? thumbErr.message : thumbErr
+              );
+            }
           }
         } else if (platformAccount.platformName === "tiktok") {
           videoBuffer ??= await fetchRenderBuffer(render.storage_path!);

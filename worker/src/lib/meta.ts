@@ -127,7 +127,14 @@ export async function createMediaContainer(
   igUserId: string,
   accessToken: string,
   videoUrl: string,
-  caption: string
+  caption: string,
+  // Which frame of the video becomes the Reel's cover, in milliseconds
+  // from the start — this is Instagram's only cover-selection mechanism;
+  // the Graph API has no way to upload a separate custom cover image (see
+  // instagram.ts's uploadInstagramReel for the default this project
+  // passes). Only takes effect at container-creation time — there's no
+  // API to change the cover of an already-published Reel afterward.
+  thumbOffsetMs?: number
 ): Promise<string> {
   const params = new URLSearchParams({
     media_type: "REELS",
@@ -136,6 +143,7 @@ export async function createMediaContainer(
     share_to_feed: "true",
     access_token: accessToken,
   });
+  if (thumbOffsetMs != null) params.set("thumb_offset", String(Math.round(thumbOffsetMs)));
   const res = await fetch(`${GRAPH_BASE}/${igUserId}/media`, { method: "POST", body: params });
   const body = await res.json();
   if (!res.ok || !body.id) {

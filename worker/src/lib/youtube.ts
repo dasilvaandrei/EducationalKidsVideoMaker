@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=multipart&part=snippet,status";
+const THUMBNAIL_UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 
 async function getAccessToken(): Promise<string> {
   const clientId = process.env.YOUTUBE_CLIENT_ID;
@@ -102,4 +103,31 @@ export async function uploadYoutubeVideo(
     videoId: responseBody.id as string,
     actualPrivacyStatus: responseBody.status?.privacyStatus as string,
   };
+}
+
+// Sets a video's custom thumbnail (`thumbnails.set`). Only Shorts are
+// blocked from this API — a regular long-form upload can have one set
+// any time after upload, so this is called separately from
+// uploadYoutubeVideo rather than folded into it (a render's custom
+// thumbnail image, when one exists, is generated out-of-band — see
+// jobs/set-thumbnail.ts). Requires the channel to be phone-verified;
+// callers should not assume this always succeeds and should treat a
+// failure here as non-fatal to the publish itself.
+export async function uploadYoutubeThumbnail(videoId: string, imageBuffer: Buffer, contentType: string): Promise<void> {
+  const accessToken = await getAccessToken();
+
+  const res = await fetch(`${THUMBNAIL_UPLOAD_URL}?videoId=${encodeURIComponent(videoId)}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": contentType,
+      "Content-Length": String(imageBuffer.length),
+    },
+    body: imageBuffer as unknown as BodyInit,
+  });
+
+  if (!res.ok) {
+    const responseBody = await res.text();
+    throw new Error(`YouTube thumbnail upload failed: ${res.status} ${responseBody}`);
+  }
 }

@@ -172,6 +172,16 @@ export type TiktokPrivacyLevel =
 export interface TiktokUploadMetadata {
   title: string; // TikTok's field name for the on-post caption text
   privacyLevel: TiktokPrivacyLevel;
+  // Which frame becomes the cover, in ms from the start of the video —
+  // TikTok's only cover-selection mechanism (no separate custom-image
+  // upload). Only meaningful here, on the dormant Direct Post path: the
+  // inbox/draft endpoint this project actually uses today has no
+  // post_info object at all (see uploadVideoToInbox above), so there is
+  // currently no API-level way to set a TikTok cover — whoever finishes
+  // the draft in-app picks the cover by hand. This field takes effect
+  // automatically once publish-episode.ts switches back to
+  // uploadTiktokVideo after the Content Posting API audit passes.
+  videoCoverTimestampMs?: number;
 }
 
 export interface TiktokUploadResult {
@@ -206,6 +216,9 @@ export async function uploadTiktokVideo(
         disable_duet: false,
         disable_comment: false,
         disable_stitch: false,
+        ...(metadata.videoCoverTimestampMs != null
+          ? { video_cover_timestamp_ms: Math.round(metadata.videoCoverTimestampMs) }
+          : {}),
       },
       source_info: {
         source: "FILE_UPLOAD",
