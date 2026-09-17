@@ -333,9 +333,18 @@ export async function publishApprovedEpisodes(options: PublishOptions = {}): Pro
 
   // Refreshed once up front and reused for the whole batch — a mid-batch
   // rotation would otherwise invalidate the token this function started
-  // with (TikTok's refresh_token can rotate on every refresh call).
+  // with (TikTok's refresh_token can rotate on every refresh call). Gated
+  // on this batch actually needing TikTok (not just a tiktok row existing
+  // somewhere in platform_accounts) — long-form's --air-slot batches only
+  // ever target youtube, and their workflow files correctly don't carry
+  // TIKTOK_REFRESH_TOKEN, so requiring it unconditionally broke every
+  // long-form publish the moment TikTok/IG accounts were connected.
+  const needsTiktok = eligible.some((r) => {
+    const format = episodeOf(r)?.format;
+    return format ? remainingPlatforms(r.id, format).some((p) => p.platformName === "tiktok") : false;
+  });
   let tiktokAccessToken: string | null = null;
-  if (accountsByPlatform.has("tiktok")) {
+  if (needsTiktok) {
     const refreshToken = process.env.TIKTOK_REFRESH_TOKEN;
     if (!refreshToken) throw new Error("TIKTOK_REFRESH_TOKEN must be set — run tiktok-oauth-bootstrap.ts first");
     const tokens = await refreshTiktokAccessToken(refreshToken);
