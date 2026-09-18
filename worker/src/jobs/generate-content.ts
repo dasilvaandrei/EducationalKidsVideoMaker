@@ -37,10 +37,15 @@ const FORMAT_BY_AIR_SLOT: Record<AirSlot, Format> = {
 // per-slot here — the simplest interpretation, and it keeps both
 // long-form air slots independently stocked rather than letting one
 // starve the other.
+//
+// nightly_short raised 3 -> 8 when publish-short-nightly.yml moved from
+// 1x/day to 4x/day — this cron still only tops up once/day, so the
+// target has to cover a full day's consumption (4) plus a cushion for a
+// slow generation run, not just a few days at the old 1/day pace.
 const BUFFER_TARGET_BY_AIR_SLOT: Record<AirSlot, number> = {
   tuesday_long_form: 2,
   friday_long_form: 2,
-  nightly_short: 3,
+  nightly_short: 8,
 };
 
 const TERMINAL_STATUSES = new Set(["published", "rejected", "failed"]);

@@ -1,12 +1,19 @@
 name: Publish nightly Short
 
-# "Night" = 7:00 PM ET, every night — see publish-long-form-tuesday.yml
-# for the full fixed-EST/DST-drift caveat, which applies identically
-# here. 7pm EST crosses the UTC day boundary, so this fires at the *next*
-# UTC day's midnight relative to the US evening.
+# 4x/day, spread across kids' waking hours rather than clustered near the
+# old single evening slot: 8am / 12pm / 4pm / 7pm ET. See
+# publish-long-form-tuesday.yml for the full fixed-EST/DST-drift caveat,
+# which applies identically here (cron is UTC-only, fixed at the EST
+# offset, so actual ET times drift an hour later during EDT). 7pm EST
+# crosses the UTC day boundary, so that slot fires at the *next* UTC
+# day's midnight relative to the US evening; the other three don't.
+#
+# Each run only publishes 1 episode (--limit 1 below), so 4 runs/day =
+# 4 Shorts/day — see generate-content.ts's BUFFER_TARGET_BY_AIR_SLOT,
+# raised alongside this to keep the buffer from draining mid-day.
 on:
   schedule:
-    - cron: "0 0 * * *" # 00:00 UTC daily = 7pm EST the evening before
+    - cron: "0 13,17,21,0 * * *" # 8am/12pm/4pm/7pm EST (UTC 13,17,21,0)
   workflow_dispatch: {} # manual trigger, e.g. to catch up after a gap
 
 jobs:
